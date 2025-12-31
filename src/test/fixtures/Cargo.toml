@@ -1,0 +1,17 @@
+[package]
+name = "test-project"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+tokio = "1.0"
+reqwest = { version = "0.11", optional = true }
+my-custom-crate = { package = "actual-crate-name", version = "1.0" }
+
+[dev-dependencies]
+mockall = "0.11"
+test-case = "3.0"
+
+[build-dependencies]
+cc = "1.0"
