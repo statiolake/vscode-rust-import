@@ -1,0 +1,63 @@
+{
+  "name": "vscode-rust-import",
+  "displayName": "Rust Import Organizer",
+  "description": "Organize Rust imports by sorting, grouping, and merging use statements",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.107.0"
+  },
+  "categories": [
+    "Formatters",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:rust"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "rust-import.organizeImports",
+        "title": "Organize Rust Imports"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "rust-import.organizeImports",
+        "key": "shift+alt+o",
+        "when": "editorLangId == rust"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "rust-import.organizeImports",
+          "when": "editorLangId == rust",
+          "group": "1_modification"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "dependencies": {
+    "toml": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.107.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@typescript-eslint/eslint-plugin": "^8.45.0",
+    "@typescript-eslint/parser": "^8.45.0",
+    "eslint": "^9.36.0",
+    "typescript": "^5.9.3",
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2"
+  }
+}
