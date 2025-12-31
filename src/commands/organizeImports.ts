@@ -6,6 +6,11 @@ import { mergeGroupedStatements } from '../transformer/merger';
 import { sortUseStatements } from '../transformer/sorter';
 import { formatImportsForFile } from '../formatter/useFormatter';
 import { CargoDependencies, GroupedImports } from '../parser/types';
+import {
+  isRustAnalyzerAvailable,
+  autoImportUnresolvedSymbols,
+  waitForDiagnostics,
+} from '../rustAnalyzer/integration';
 
 /**
  * Organize imports in the current Rust file
@@ -23,14 +28,63 @@ export async function organizeImports(): Promise<void> {
     return;
   }
 
+  await organizeImportsInDocument(editor.document);
+}
+
+/**
+ * Organize imports with auto-import (goimports-like behavior)
+ * First auto-imports unresolved symbols, then organizes all imports
+ */
+export async function organizeImportsWithAutoImport(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+
+  if (!editor) {
+    vscode.window.showWarningMessage('No active editor');
+    return;
+  }
+
+  if (editor.document.languageId !== 'rust') {
+    vscode.window.showWarningMessage('This command only works with Rust files');
+    return;
+  }
+
   const document = editor.document;
+
+  // Check if Rust Analyzer is available
+  const raAvailable = await isRustAnalyzerAvailable();
+
+  if (raAvailable) {
+    // Wait for diagnostics to be up-to-date
+    await waitForDiagnostics(document, 1000);
+
+    // Auto-import unresolved symbols (only when single suggestion exists)
+    const importCount = await autoImportUnresolvedSymbols(document);
+
+    if (importCount > 0) {
+      // Wait a bit for the document to be updated
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+
+  // Now organize imports
+  await organizeImportsInDocument(document);
+}
+
+/**
+ * Core function to organize imports in a document
+ */
+async function organizeImportsInDocument(document: vscode.TextDocument): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document !== document) {
+    return;
+  }
+
   const content = document.getText();
 
   // Parse the file to extract imports
   const parseResult = parseRustFile(content);
 
   if (parseResult.imports.length === 0) {
-    vscode.window.showInformationMessage('No imports found in this file');
     return;
   }
 

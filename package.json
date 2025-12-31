@@ -19,6 +19,10 @@
       {
         "command": "rust-import.organizeImports",
         "title": "Organize Rust Imports"
+      },
+      {
+        "command": "rust-import.organizeImportsWithAutoImport",
+        "title": "Organize Rust Imports (with Auto-Import)"
       }
     ],
     "keybindings": [
@@ -26,12 +30,22 @@
         "command": "rust-import.organizeImports",
         "key": "shift+alt+o",
         "when": "editorLangId == rust"
+      },
+      {
+        "command": "rust-import.organizeImportsWithAutoImport",
+        "key": "shift+alt+i",
+        "when": "editorLangId == rust"
       }
     ],
     "menus": {
       "editor/context": [
         {
           "command": "rust-import.organizeImports",
+          "when": "editorLangId == rust",
+          "group": "1_modification"
+        },
+        {
+          "command": "rust-import.organizeImportsWithAutoImport",
           "when": "editorLangId == rust",
           "group": "1_modification"
         }
