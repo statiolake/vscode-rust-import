@@ -1,71 +1,89 @@
-# vscode-rust-import README
+# Rust Import Organizer
 
-This is the README for your extension "vscode-rust-import". After writing up a brief description, we recommend including the following sections.
+A VS Code extension that organizes Rust `use` statements by sorting, grouping, and merging them.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- **Sort** imports alphabetically
+- **Group** imports by category:
+  1. Standard library (`std`, `core`, `alloc`)
+  2. External crates (from `Cargo.toml` dependencies)
+  3. Internal modules (`crate::`, `super::`, `self::`)
+  4. Conditional imports (with `#[cfg(...)]` attributes)
+- **Merge** imports with common prefixes into nested format
+- **Multi-line formatting** for merged imports (compatible with rustfmt)
 
-For example if there is an image subfolder under your extension project workspace:
+### Before
 
-\!\[feature X\]\(images/feature-x.png\)
+```rust
+use serde::{Deserialize, Serialize};
+use std::io::Read;
+use crate::utils::helper;
+use std::collections::HashMap;
+use tokio::sync::mpsc;
+use super::parent_module;
+use std::io::Write;
+#[cfg(test)]
+use crate::test_helpers;
+```
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+### After
+
+```rust
+use std::{
+    collections::HashMap,
+    io::{
+        Read,
+        Write,
+    },
+};
+
+use serde::{
+    Deserialize,
+    Serialize,
+};
+use tokio::sync::mpsc;
+
+use super::parent_module;
+use crate::utils::helper;
+
+#[cfg(test)]
+use crate::test_helpers;
+```
+
+## Usage
+
+### Command Palette
+
+1. Open a Rust file
+2. Open Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
+3. Run "Organize Rust Imports"
+
+### Keyboard Shortcut
+
+- `Shift+Alt+O` (when editing a Rust file)
+
+### Context Menu
+
+Right-click in a Rust file and select "Organize Rust Imports"
 
 ## Requirements
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+- The extension automatically detects `Cargo.toml` to identify third-party dependencies
+- Works with any Rust project structure
 
-## Extension Settings
+## Known Limitations
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
+- Does not currently support format-on-save (run manually or use keybinding)
+- Macro-based imports are not processed
+- Comments between imports may be repositioned
 
 ## Release Notes
 
-Users appreciate release notes as you update your extension.
+### 0.0.1
 
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+Initial release:
+- Basic import sorting and grouping
+- Import merging with nested braces
+- Multi-line formatting
+- Cargo.toml dependency detection
