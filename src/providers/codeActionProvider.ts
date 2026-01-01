@@ -25,23 +25,23 @@ export class RustImportCodeActionProvider implements vscode.CodeActionProvider {
 
     // Organize Imports action (source.organizeImports)
     const organizeAction = new vscode.CodeAction(
-      'Organize Rust Imports',
+      'Rust Import Organizer: Organize Imports',
       vscode.CodeActionKind.SourceOrganizeImports
     );
     organizeAction.command = {
       command: 'rust-import.organizeImports',
-      title: 'Organize Rust Imports',
+      title: 'Rust Import Organizer: Organize Imports',
     };
     actions.push(organizeAction);
 
     // Auto Import action (source.autoImport)
     const autoImportAction = new vscode.CodeAction(
-      'Auto Import (Rust)',
+      'Rust Import Organizer: Auto Import',
       vscode.CodeActionKind.Source.append('autoImport')
     );
     autoImportAction.command = {
       command: 'rust-import.autoImport',
-      title: 'Auto Import (Rust)',
+      title: 'Rust Import Organizer: Auto Import',
     };
     actions.push(autoImportAction);
 
