@@ -103,6 +103,30 @@ Or for Rust files only:
 }
 ```
 
+## Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `rustImportOrganizer.enableAutoImport` | `true` | Enable auto-import of unresolved symbols when organizing imports |
+| `rustImportOrganizer.enableGroupImports` | `true` | Enable sorting and grouping of imports when organizing imports |
+
+Example configuration in `settings.json`:
+
+```json
+{
+  "rustImportOrganizer.enableAutoImport": true,
+  "rustImportOrganizer.enableGroupImports": true
+}
+```
+
+To disable auto-import and only use grouping/sorting:
+
+```json
+{
+  "rustImportOrganizer.enableAutoImport": false
+}
+```
+
 #### Keyboard Shortcuts
 
 You can assign custom keyboard shortcuts in VS Code:

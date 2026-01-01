@@ -38,6 +38,21 @@
           "group": "1_modification"
         }
       ]
+    },
+    "configuration": {
+      "title": "Rust Import Organizer",
+      "properties": {
+        "rustImportOrganizer.enableAutoImport": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable auto-import of unresolved symbols when organizing imports"
+        },
+        "rustImportOrganizer.enableGroupImports": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable sorting and grouping of imports when organizing imports"
+        }
+      }
     }
   },
   "scripts": {
