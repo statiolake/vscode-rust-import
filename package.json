@@ -3,6 +3,12 @@
   "displayName": "Rust Import Organizer",
   "description": "Organize Rust imports by sorting, grouping, and merging use statements",
   "version": "0.0.1",
+  "publisher": "statiolake",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/statiolake/vscode-rust-import"
+  },
+  "license": "MIT",
   "engines": {
     "vscode": "^1.107.0"
   },
@@ -61,20 +67,23 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "package": "vsce package",
+    "publish": "vsce publish"
   },
   "dependencies": {
     "toml": "^3.0.0"
   },
   "devDependencies": {
-    "@types/vscode": "^1.107.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
+    "@types/vscode": "^1.107.0",
     "@typescript-eslint/eslint-plugin": "^8.45.0",
     "@typescript-eslint/parser": "^8.45.0",
-    "eslint": "^9.36.0",
-    "typescript": "^5.9.3",
     "@vscode/test-cli": "^0.0.11",
-    "@vscode/test-electron": "^2.5.2"
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.7.1",
+    "eslint": "^9.36.0",
+    "typescript": "^5.9.3"
   }
 }
