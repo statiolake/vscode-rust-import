@@ -32,51 +32,24 @@ export async function isRustAnalyzerAvailable(): Promise<boolean> {
 }
 
 /**
- * Execute Rust Analyzer's organize imports code action
- * This will add any missing imports that have a single unambiguous resolution
+ * Extract full import path from Code Action title
+ * e.g., "Import `std::time::Duration`" -> "std::time::Duration"
+ * Returns null if title doesn't contain full path (e.g., "Import Duration")
  */
-export async function executeOrganizeImports(
-  document: vscode.TextDocument
-): Promise<boolean> {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor || editor.document !== document) {
-    return false;
+function extractImportPath(title: string): string | null {
+  // Match "Import `full::path::Name`" pattern
+  const match = title.match(/^Import `([^`]+)`$/);
+  if (!match) {
+    return null;
   }
 
-  try {
-    // Get all code actions for the entire document
-    const range = new vscode.Range(
-      new vscode.Position(0, 0),
-      new vscode.Position(document.lineCount - 1, 0)
-    );
-
-    const codeActions = await vscode.commands.executeCommand<vscode.CodeAction[]>(
-      'vscode.executeCodeActionProvider',
-      document.uri,
-      range,
-      vscode.CodeActionKind.SourceOrganizeImports.value
-    );
-
-    if (codeActions && codeActions.length > 0) {
-      for (const action of codeActions) {
-        if (action.edit) {
-          await vscode.workspace.applyEdit(action.edit);
-        }
-        if (action.command) {
-          await vscode.commands.executeCommand(
-            action.command.command,
-            ...(action.command.arguments || [])
-          );
-        }
-      }
-      return true;
-    }
-
-    return false;
-  } catch (error) {
-    log(`Failed to execute organize imports: ${error}`);
-    return false;
+  const path = match[1];
+  // Must contain :: to be a full path (not just "Import Duration")
+  if (!path.includes('::')) {
+    return null;
   }
+
+  return path;
 }
 
 /**
@@ -86,34 +59,20 @@ export async function executeOrganizeImports(
 export async function autoImportUnresolvedSymbols(
   document: vscode.TextDocument
 ): Promise<number> {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor || editor.document !== document) {
-    return 0;
-  }
+  log(`\n=== autoImportUnresolvedSymbols started ===`);
+  log(`Document: ${document.uri.fsPath}`);
 
-  let importCount = 0;
+  // Collect all import suggestions: Map from symbol name to set of possible paths
+  const symbolToImports = new Map<string, Set<string>>();
 
   try {
-    // Get diagnostics for the document
+    // Get all diagnostics for the document
     const diagnostics = vscode.languages.getDiagnostics(document.uri);
     log(`Found ${diagnostics.length} total diagnostics`);
 
-    // Filter for unresolved import errors from rust-analyzer
-    const unresolvedErrors = diagnostics.filter(d => {
-      const isRustAnalyzer = d.source === 'rust-analyzer';
-      const isUnresolved = d.message.includes('unresolved') ||
-                           d.message.includes('cannot find') ||
-                           d.message.includes('not found');
-      return isRustAnalyzer && isUnresolved;
-    });
-
-    log(`Found ${unresolvedErrors.length} unresolved errors from rust-analyzer`);
-
-    for (const diagnostic of unresolvedErrors) {
-      log(`\nProcessing diagnostic: "${diagnostic.message}" at line ${diagnostic.range.start.line + 1}`);
-      log(`  Source: ${diagnostic.source}, Code: ${JSON.stringify(diagnostic.code)}`);
-
-      // Get code actions for this specific diagnostic
+    // Process each diagnostic to collect import suggestions
+    for (const diagnostic of diagnostics) {
+      // Get code actions for this diagnostic
       const codeActions = await vscode.commands.executeCommand<vscode.CodeAction[]>(
         'vscode.executeCodeActionProvider',
         document.uri,
@@ -122,91 +81,92 @@ export async function autoImportUnresolvedSymbols(
       );
 
       if (!codeActions || codeActions.length === 0) {
-        log(`  No code actions available`);
         continue;
       }
 
-      log(`  Found ${codeActions.length} code actions:`);
+      // Extract import paths from code action titles
       for (const action of codeActions) {
-        log(`    - "${action.title}" (kind: ${action.kind?.value ?? 'undefined'})`);
-      }
+        const path = extractImportPath(action.title);
+        if (path) {
+          // Extract symbol name from path (last segment)
+          const symbolName = path.split('::').pop()!;
 
-      // Filter for import suggestions only
-      const importActions = codeActions.filter(action => {
-        const title = action.title;
-        const isImport = title.startsWith('Import `') ||
-                         title.startsWith('Import ') ||
-                         title.includes('use ');
-        if (isImport) {
-          log(`    [MATCH] "${title}"`);
-        }
-        return isImport;
-      });
-
-      log(`  Filtered to ${importActions.length} import actions`);
-
-      // Only apply if there's exactly one import suggestion (unambiguous)
-      if (importActions.length === 1) {
-        const action = importActions[0];
-        log(`  Applying: "${action.title}"`);
-
-        if (action.edit) {
-          const applied = await vscode.workspace.applyEdit(action.edit);
-          if (applied) {
-            importCount++;
-            log(`  Successfully applied edit`);
-          } else {
-            log(`  Failed to apply edit`);
+          if (!symbolToImports.has(symbolName)) {
+            symbolToImports.set(symbolName, new Set());
           }
+          symbolToImports.get(symbolName)!.add(path);
+
+          log(`  Found: ${symbolName} -> ${path}`);
         }
-        if (action.command) {
-          log(`  Executing command: ${action.command.command}`);
-          await vscode.commands.executeCommand(
-            action.command.command,
-            ...(action.command.arguments || [])
-          );
-        }
-      } else if (importActions.length > 1) {
-        log(`  Skipping: multiple import options (ambiguous)`);
-      } else {
-        log(`  Skipping: no import actions matched`);
       }
+    }
+
+    // Collect only unambiguous imports (symbols with exactly one import path)
+    const importsToAdd = new Set<string>();
+    for (const [symbolName, paths] of symbolToImports) {
+      if (paths.size === 1) {
+        const path = Array.from(paths)[0];
+        log(`Will add: use ${path}; (unambiguous)`);
+        importsToAdd.add(path);
+      } else {
+        log(`Skipping ${symbolName}: ${paths.size} options (ambiguous)`);
+      }
+    }
+
+    // Apply all collected imports at once
+    if (importsToAdd.size > 0) {
+      log(`\nApplying ${importsToAdd.size} imports...`);
+
+      const edit = new vscode.WorkspaceEdit();
+      const importStatements = Array.from(importsToAdd)
+        .map(path => `use ${path};`)
+        .join('\n') + '\n';
+
+      // Find the right position to insert imports
+      // Must be after: #![...], //!, extern crate
+      const text = document.getText();
+      const lines = text.split('\n');
+      let insertLine = 0;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (
+          line.startsWith('#![') ||      // inner attribute
+          line.startsWith('//!') ||       // module doc comment
+          line.startsWith('extern crate') // extern crate
+        ) {
+          insertLine = i + 1;
+        } else if (line === '' || line.startsWith('//')) {
+          // Skip empty lines and regular comments at the top
+          if (insertLine === i) {
+            insertLine = i + 1;
+          }
+        } else if (line.startsWith('use ') || line.startsWith('mod ')) {
+          // Found existing use/mod, insert here
+          insertLine = i;
+          break;
+        } else if (line.length > 0 && !line.startsWith('#[')) {
+          // Found other code, insert before it
+          break;
+        }
+      }
+
+      log(`  Inserting at line ${insertLine}`);
+      edit.insert(document.uri, new vscode.Position(insertLine, 0), importStatements);
+
+      const applied = await vscode.workspace.applyEdit(edit);
+      if (applied) {
+        log(`Successfully added ${importsToAdd.size} imports`);
+        return importsToAdd.size;
+      } else {
+        log(`Failed to apply imports`);
+      }
+    } else {
+      log(`\nNo unambiguous imports to add`);
     }
   } catch (error) {
     log(`Failed to auto-import symbols: ${error}`);
   }
 
-  log(`\nTotal imports added: ${importCount}`);
-  return importCount;
-}
-
-/**
- * Wait for diagnostics to be updated after document changes
- */
-export function waitForDiagnostics(
-  document: vscode.TextDocument,
-  timeoutMs: number = 2000
-): Promise<void> {
-  return new Promise((resolve) => {
-    const disposable = vscode.languages.onDidChangeDiagnostics(e => {
-      if (e.uris.some(uri => uri.toString() === document.uri.toString())) {
-        disposable.dispose();
-        // Give a small delay for rust-analyzer to finish processing
-        setTimeout(resolve, 100);
-      }
-    });
-
-    // Timeout fallback
-    setTimeout(() => {
-      disposable.dispose();
-      resolve();
-    }, timeoutMs);
-  });
-}
-
-/**
- * Show the output channel for debugging
- */
-export function showOutputChannel(): void {
-  OUTPUT_CHANNEL.show();
+  return 0;
 }
