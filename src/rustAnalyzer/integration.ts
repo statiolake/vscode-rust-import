@@ -1,22 +1,33 @@
 import * as vscode from 'vscode';
 
+const OUTPUT_CHANNEL = vscode.window.createOutputChannel('Rust Import Organizer');
+
+function log(message: string): void {
+  OUTPUT_CHANNEL.appendLine(`[${new Date().toISOString()}] ${message}`);
+}
+
 /**
  * Check if Rust Analyzer extension is installed and active
  */
 export async function isRustAnalyzerAvailable(): Promise<boolean> {
   const rustAnalyzer = vscode.extensions.getExtension('rust-lang.rust-analyzer');
   if (!rustAnalyzer) {
+    log('Rust Analyzer extension not found');
     return false;
   }
 
   if (!rustAnalyzer.isActive) {
     try {
+      log('Activating Rust Analyzer extension...');
       await rustAnalyzer.activate();
-    } catch {
+      log('Rust Analyzer activated');
+    } catch (error) {
+      log(`Failed to activate Rust Analyzer: ${error}`);
       return false;
     }
   }
 
+  log('Rust Analyzer is available');
   return true;
 }
 
@@ -63,7 +74,7 @@ export async function executeOrganizeImports(
 
     return false;
   } catch (error) {
-    console.error('Failed to execute organize imports:', error);
+    log(`Failed to execute organize imports: ${error}`);
     return false;
   }
 }
@@ -85,16 +96,23 @@ export async function autoImportUnresolvedSymbols(
   try {
     // Get diagnostics for the document
     const diagnostics = vscode.languages.getDiagnostics(document.uri);
+    log(`Found ${diagnostics.length} total diagnostics`);
 
     // Filter for unresolved import errors from rust-analyzer
-    const unresolvedErrors = diagnostics.filter(d =>
-      d.source === 'rust-analyzer' &&
-      (d.message.includes('unresolved') ||
-       d.message.includes('cannot find') ||
-       d.message.includes('not found'))
-    );
+    const unresolvedErrors = diagnostics.filter(d => {
+      const isRustAnalyzer = d.source === 'rust-analyzer';
+      const isUnresolved = d.message.includes('unresolved') ||
+                           d.message.includes('cannot find') ||
+                           d.message.includes('not found');
+      return isRustAnalyzer && isUnresolved;
+    });
+
+    log(`Found ${unresolvedErrors.length} unresolved errors from rust-analyzer`);
 
     for (const diagnostic of unresolvedErrors) {
+      log(`\nProcessing diagnostic: "${diagnostic.message}" at line ${diagnostic.range.start.line + 1}`);
+      log(`  Source: ${diagnostic.source}, Code: ${JSON.stringify(diagnostic.code)}`);
+
       // Get code actions for this specific diagnostic
       const codeActions = await vscode.commands.executeCommand<vscode.CodeAction[]>(
         'vscode.executeCodeActionProvider',
@@ -103,36 +121,62 @@ export async function autoImportUnresolvedSymbols(
         vscode.CodeActionKind.QuickFix.value
       );
 
-      if (!codeActions) {
+      if (!codeActions || codeActions.length === 0) {
+        log(`  No code actions available`);
         continue;
       }
 
+      log(`  Found ${codeActions.length} code actions:`);
+      for (const action of codeActions) {
+        log(`    - "${action.title}" (kind: ${action.kind?.value ?? 'undefined'})`);
+      }
+
       // Filter for import suggestions only
-      const importActions = codeActions.filter(action =>
-        action.title.startsWith('Import `') ||
-        action.title.includes('use ')
-      );
+      const importActions = codeActions.filter(action => {
+        const title = action.title;
+        const isImport = title.startsWith('Import `') ||
+                         title.startsWith('Import ') ||
+                         title.includes('use ');
+        if (isImport) {
+          log(`    [MATCH] "${title}"`);
+        }
+        return isImport;
+      });
+
+      log(`  Filtered to ${importActions.length} import actions`);
 
       // Only apply if there's exactly one import suggestion (unambiguous)
       if (importActions.length === 1) {
         const action = importActions[0];
+        log(`  Applying: "${action.title}"`);
 
         if (action.edit) {
-          await vscode.workspace.applyEdit(action.edit);
-          importCount++;
+          const applied = await vscode.workspace.applyEdit(action.edit);
+          if (applied) {
+            importCount++;
+            log(`  Successfully applied edit`);
+          } else {
+            log(`  Failed to apply edit`);
+          }
         }
         if (action.command) {
+          log(`  Executing command: ${action.command.command}`);
           await vscode.commands.executeCommand(
             action.command.command,
             ...(action.command.arguments || [])
           );
         }
+      } else if (importActions.length > 1) {
+        log(`  Skipping: multiple import options (ambiguous)`);
+      } else {
+        log(`  Skipping: no import actions matched`);
       }
     }
   } catch (error) {
-    console.error('Failed to auto-import symbols:', error);
+    log(`Failed to auto-import symbols: ${error}`);
   }
 
+  log(`\nTotal imports added: ${importCount}`);
   return importCount;
 }
 
@@ -158,4 +202,11 @@ export function waitForDiagnostics(
       resolve();
     }, timeoutMs);
   });
+}
+
+/**
+ * Show the output channel for debugging
+ */
+export function showOutputChannel(): void {
+  OUTPUT_CHANNEL.show();
 }

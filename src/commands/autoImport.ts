@@ -3,6 +3,7 @@ import {
   isRustAnalyzerAvailable,
   autoImportUnresolvedSymbols,
   waitForDiagnostics,
+  showOutputChannel,
 } from '../rustAnalyzer/integration';
 
 /**
@@ -34,6 +35,9 @@ export async function autoImport(): Promise<void> {
     return;
   }
 
+  // Show output channel for debugging
+  showOutputChannel();
+
   // Wait for diagnostics to be up-to-date
   await waitForDiagnostics(document, 1000);
 
@@ -43,6 +47,6 @@ export async function autoImport(): Promise<void> {
   if (importCount > 0) {
     vscode.window.showInformationMessage(`Added ${importCount} import(s)`);
   } else {
-    vscode.window.showInformationMessage('No unambiguous imports to add');
+    vscode.window.showInformationMessage('No unambiguous imports to add. Check Output panel for details.');
   }
 }
