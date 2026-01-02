@@ -203,6 +203,32 @@ use std::io;const X: usize = 4;`;
       assert.strictEqual(result.imports[1].endCol, 12);
       assert.strictEqual(result.lastImportEndCol, 12);
     });
+
+    test('detects when there is no blank line after imports', () => {
+      const content = `use std::io;
+const X: usize = 4;`;
+      const result = parseRustFile(content);
+      assert.strictEqual(result.imports.length, 1);
+      // The next line is code, not blank
+      assert.strictEqual(result.hasBlankLineAfterImports, false);
+    });
+
+    test('detects when there is a blank line after imports', () => {
+      const content = `use std::io;
+
+const X: usize = 4;`;
+      const result = parseRustFile(content);
+      assert.strictEqual(result.imports.length, 1);
+      assert.strictEqual(result.hasBlankLineAfterImports, true);
+    });
+
+    test('hasBlankLineAfterImports is true when imports at end of file', () => {
+      const content = `use std::io;`;
+      const result = parseRustFile(content);
+      assert.strictEqual(result.imports.length, 1);
+      // No code after imports, so blank line not needed
+      assert.strictEqual(result.hasBlankLineAfterImports, true);
+    });
   });
 
   suite('getRootPath', () => {

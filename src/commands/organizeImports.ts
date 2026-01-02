@@ -153,6 +153,7 @@ async function groupAndSortImports(document: vscode.TextDocument): Promise<boole
   const endCol = parseResult.lastImportEndCol ?? document.lineAt(endLine).text.length;
   const hasCodeBeforeImports = parseResult.importStartCol !== undefined;
   const hasCodeAfterImports = parseResult.lastImportEndCol !== undefined;
+  const needsBlankLineAfter = !parseResult.hasBlankLineAfterImports && !hasCodeAfterImports;
 
   // Apply the edit
   const range = new vscode.Range(
@@ -167,6 +168,9 @@ async function groupAndSortImports(document: vscode.TextDocument): Promise<boole
   }
   if (hasCodeAfterImports) {
     formattedText = formattedText + '\n\n';
+  } else if (needsBlankLineAfter) {
+    // Add blank line when there's code on the next line but no blank line
+    formattedText = formattedText + '\n';
   }
 
   await editor.edit(editBuilder => {

@@ -70,4 +70,5 @@ export interface ParseResult {
   importStartCol?: number;  // Column where the first import starts (if not start of line)
   importEndLine: number;
   lastImportEndCol?: number;  // Column where the last import ends (if not end of line)
+  hasBlankLineAfterImports: boolean;  // Whether there's a blank line after imports
 }

@@ -538,6 +538,18 @@ export function parseRustFile(content: string): ParseResult {
     ? lines.slice(lastImportLine + 1).join('\n')
     : '';
 
+  // Check if there's a blank line after imports
+  // True if: no code after imports, or next line after imports is blank
+  let hasBlankLineAfterImports = true;
+  if (lastImportLine >= 0 && lastImportLine + 1 < lines.length) {
+    // If there's code after the semicolon on the same line, no blank line needed (handled separately)
+    if (lastImportEndCol === undefined) {
+      // Check the line after imports
+      const nextLine = lines[lastImportLine + 1].trim();
+      hasBlankLineAfterImports = nextLine === '';
+    }
+  }
+
   return {
     imports,
     beforeImports: beforeImports.length > 0 ? beforeImports + '\n' : '',
@@ -546,6 +558,7 @@ export function parseRustFile(content: string): ParseResult {
     importStartCol: firstImportStartCol,
     importEndLine: lastImportLine,
     lastImportEndCol,
+    hasBlankLineAfterImports,
   };
 }
 
