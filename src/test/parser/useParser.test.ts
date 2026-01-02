@@ -132,7 +132,7 @@ fn main() {}`;
       assert.strictEqual(result.imports[0].tree.children?.length, 2);
     });
 
-    test('preserves beforeImports content', () => {
+    test('tracks import range correctly', () => {
       const content = `// Comment
 #![allow(dead_code)]
 
@@ -140,19 +140,24 @@ use std::io;
 
 fn main() {}`;
       const result = parseRustFile(content);
-      assert.ok(result.beforeImports.includes('// Comment'));
-      assert.ok(result.beforeImports.includes('#![allow(dead_code)]'));
+      assert.strictEqual(result.imports.length, 1);
+      assert.ok(result.importsRange !== null);
+      assert.strictEqual(result.importsRange?.start.line, 3);
+      assert.strictEqual(result.importsRange?.end.line, 3);
     });
 
-    test('preserves afterImports content', () => {
+    test('tracks multi-import range correctly', () => {
       const content = `use std::io;
+use std::fs;
 
 fn main() {
     println!("Hello");
 }`;
       const result = parseRustFile(content);
-      assert.ok(result.afterImports.includes('fn main()'));
-      assert.ok(result.afterImports.includes('println!'));
+      assert.strictEqual(result.imports.length, 2);
+      assert.ok(result.importsRange !== null);
+      assert.strictEqual(result.importsRange?.start.line, 0);
+      assert.strictEqual(result.importsRange?.end.line, 1);
     });
 
     test('handles file with no imports', () => {
@@ -168,9 +173,9 @@ fn main() {}`;
       const result = parseRustFile(content);
       assert.strictEqual(result.imports.length, 1);
       assert.strictEqual(result.imports[0].tree.segment.name, 'std');
-      // endCol should be set to the position after the semicolon
-      assert.strictEqual(result.imports[0].endCol, 12);
-      assert.strictEqual(result.lastImportEndCol, 12);
+      // range.end.column should be set to the position after the semicolon
+      assert.strictEqual(result.imports[0].range.end.column, 12);
+      assert.strictEqual(result.importsRange?.end.column, 12);
     });
 
     test('handles use statement with code before on same line', () => {
@@ -180,9 +185,9 @@ fn main() {}`;
       const result = parseRustFile(content);
       assert.strictEqual(result.imports.length, 1);
       assert.strictEqual(result.imports[0].tree.segment.name, 'std');
-      // startCol should be set to the position of 'use'
-      assert.strictEqual(result.imports[0].startCol, 12);
-      assert.strictEqual(result.importStartCol, 12);
+      // range.start.column should be set to the position of 'use'
+      assert.strictEqual(result.imports[0].range.start.column, 12);
+      assert.strictEqual(result.importsRange?.start.column, 12);
     });
 
     test('handles use statement with code before and after on same line', () => {
@@ -190,8 +195,8 @@ fn main() {}`;
       const result = parseRustFile(content);
       assert.strictEqual(result.imports.length, 1);
       assert.strictEqual(result.imports[0].tree.segment.name, 'std');
-      assert.strictEqual(result.imports[0].startCol, 12);
-      assert.strictEqual(result.imports[0].endCol, 24);
+      assert.strictEqual(result.imports[0].range.start.column, 12);
+      assert.strictEqual(result.imports[0].range.end.column, 24);
     });
 
     test('handles multiple use statements where last has code after', () => {
@@ -199,9 +204,10 @@ fn main() {}`;
 use std::io;const X: usize = 4;`;
       const result = parseRustFile(content);
       assert.strictEqual(result.imports.length, 2);
-      assert.strictEqual(result.imports[0].endCol, undefined);
-      assert.strictEqual(result.imports[1].endCol, 12);
-      assert.strictEqual(result.lastImportEndCol, 12);
+      // First import ends at end of line (column = line length)
+      assert.strictEqual(result.imports[0].range.end.column, 12);
+      assert.strictEqual(result.imports[1].range.end.column, 12);
+      assert.strictEqual(result.importsRange?.end.column, 12);
     });
 
     test('detects when there is no blank line after imports', () => {

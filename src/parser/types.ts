@@ -1,4 +1,20 @@
 /**
+ * Position in a document (0-indexed line and column)
+ */
+export interface Position {
+  line: number;
+  column: number;
+}
+
+/**
+ * Range in a document (start inclusive, end exclusive)
+ */
+export interface Range {
+  start: Position;
+  end: Position;
+}
+
+/**
  * Represents a single path segment in a use statement.
  * Example: In `use std::io::Read as R;`, segments are "std", "io", "Read" (with alias "R")
  */
@@ -25,10 +41,7 @@ export interface UseStatement {
   visibility?: string;  // pub, pub(crate), pub(super), etc.
   tree: UseTree;
   attributes?: string[];  // #[cfg(...)] etc.
-  startLine: number;
-  startCol?: number;  // Column where the use statement starts (if not start of line)
-  endLine: number;
-  endCol?: number;  // Column where the use statement ends (after semicolon)
+  range: Range;  // Exact range of the use statement (including visibility, excluding attributes)
 }
 
 /**
@@ -64,11 +77,8 @@ export interface CargoDependencies {
  */
 export interface ParseResult {
   imports: UseStatement[];
-  beforeImports: string;  // Content before the first import
-  afterImports: string;   // Content after the last import
-  importStartLine: number;
-  importStartCol?: number;  // Column where the first import starts (if not start of line)
-  importEndLine: number;
-  lastImportEndCol?: number;  // Column where the last import ends (if not end of line)
-  hasBlankLineAfterImports: boolean;  // Whether there's a blank line after imports
+  /** Range covering all imports (from first import start to last import end) */
+  importsRange: Range | null;
+  /** Whether there's a blank line after imports (or no code after imports) */
+  hasBlankLineAfterImports: boolean;
 }

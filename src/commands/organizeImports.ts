@@ -121,7 +121,7 @@ async function groupAndSortImports(document: vscode.TextDocument): Promise<boole
   // Parse the file to extract imports
   const parseResult = parseRustFile(content);
 
-  if (parseResult.imports.length === 0) {
+  if (parseResult.imports.length === 0 || !parseResult.importsRange) {
     return false;
   }
 
@@ -139,20 +139,16 @@ async function groupAndSortImports(document: vscode.TextDocument): Promise<boole
   // Format the imports
   const formattedImports = formatImportsForFile(processedGroups);
 
-  // Calculate the range to replace
-  const startLine = parseResult.importStartLine;
-  const endLine = parseResult.importEndLine;
+  // Use the importsRange from parse result
+  const importsRange = parseResult.importsRange;
+  const startLine = importsRange.start.line;
+  const endLine = importsRange.end.line;
+  const startCol = importsRange.start.column;
+  const endCol = importsRange.end.column;
 
-  if (startLine < 0 || endLine < 0) {
-    return false;
-  }
-
-  // Determine start/end columns - if there's code before/after the imports on the same line,
-  // we need to preserve it
-  const startCol = parseResult.importStartCol ?? 0;
-  const endCol = parseResult.lastImportEndCol ?? document.lineAt(endLine).text.length;
-  const hasCodeBeforeImports = parseResult.importStartCol !== undefined;
-  const hasCodeAfterImports = parseResult.lastImportEndCol !== undefined;
+  // Determine if there's code before/after the imports on the same line
+  const hasCodeBeforeImports = startCol > 0;
+  const hasCodeAfterImports = endCol < document.lineAt(endLine).text.length;
   const needsBlankLineAfter = !parseResult.hasBlankLineAfterImports && !hasCodeAfterImports;
 
   // Apply the edit

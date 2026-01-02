@@ -1,4 +1,4 @@
-import { UseStatement, UseTree, UsePathSegment, ParseResult } from './types';
+import { UseStatement, UseTree, UsePathSegment, ParseResult, Range, Position } from './types';
 
 /**
  * Token types for the lexer
@@ -338,10 +338,7 @@ function findStartLine(lines: string[], useLineIndex: number): number {
 export function parseUseStatement(
   useStr: string,
   attributes: string[] = [],
-  startLine: number = 0,
-  startCol?: number,
-  endLine: number = 0,
-  endCol?: number
+  range: Range = { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } }
 ): UseStatement {
   const tokens = tokenize(useStr);
   const parser = new UseTreeParser(tokens);
@@ -351,10 +348,7 @@ export function parseUseStatement(
     visibility,
     tree,
     attributes,
-    startLine,
-    startCol,
-    endLine,
-    endCol,
+    range,
   };
 }
 
@@ -401,10 +395,6 @@ export function parseRustFile(content: string): ParseResult {
   const imports: UseStatement[] = [];
 
   let i = 0;
-  let firstImportLine = -1;
-  let firstImportStartCol: number | undefined;
-  let lastImportLine = -1;
-  let lastImportEndCol: number | undefined;
   let inUseStatement = false;
   let currentUseLines: string[] = [];
   let currentUseStartLine = 0;
@@ -454,22 +444,15 @@ export function parseRustFile(content: string): ParseResult {
         if (result.endCol !== -1) {
           // Use statement ends in this line
           const useStr = line.substring(currentUseStartCol, result.endCol);
-          currentUseLines = [useStr];
           const attributes = extractAttributes(lines, i);
-          const startLine = currentUseStartLine;
-          const startCol = currentUseStartCol > 0 ? currentUseStartCol : undefined;
+          const range: Range = {
+            start: { line: currentUseStartLine, column: currentUseStartCol },
+            end: { line: i, column: result.endCol },
+          };
 
           try {
-            const endCol = result.endCol < line.length ? result.endCol : undefined;
-            const useStmt = parseUseStatement(useStr, attributes, startLine, startCol, i, endCol);
+            const useStmt = parseUseStatement(useStr, attributes, range);
             imports.push(useStmt);
-
-            if (firstImportLine === -1) {
-              firstImportLine = startLine;
-              firstImportStartCol = startCol;
-            }
-            lastImportLine = i;
-            lastImportEndCol = endCol;
           } catch (e) {
             // Skip malformed use statements
           }
@@ -502,19 +485,14 @@ export function parseRustFile(content: string): ParseResult {
       currentUseLines.push(line.substring(0, result.endCol));
       const fullUseStr = currentUseLines.join('\n');
       const attributes = extractAttributes(lines, currentUseStartLine);
-      const startCol = currentUseStartCol > 0 ? currentUseStartCol : undefined;
+      const range: Range = {
+        start: { line: currentUseStartLine, column: currentUseStartCol },
+        end: { line: i, column: result.endCol },
+      };
 
       try {
-        const endCol = result.endCol < line.length ? result.endCol : undefined;
-        const useStmt = parseUseStatement(fullUseStr, attributes, currentUseStartLine, startCol, i, endCol);
+        const useStmt = parseUseStatement(fullUseStr, attributes, range);
         imports.push(useStmt);
-
-        if (firstImportLine === -1) {
-          firstImportLine = currentUseStartLine;
-          firstImportStartCol = startCol;
-        }
-        lastImportLine = i;
-        lastImportEndCol = endCol;
       } catch (e) {
         // Skip malformed use statements
       }
@@ -529,35 +507,38 @@ export function parseRustFile(content: string): ParseResult {
     i++;
   }
 
-  // Build result
-  const beforeImports = firstImportLine >= 0
-    ? lines.slice(0, firstImportLine).join('\n')
-    : content;
-
-  const afterImports = lastImportLine >= 0
-    ? lines.slice(lastImportLine + 1).join('\n')
-    : '';
+  // Build importsRange from first and last import
+  let importsRange: Range | null = null;
+  if (imports.length > 0) {
+    const first = imports[0];
+    const last = imports[imports.length - 1];
+    importsRange = {
+      start: first.range.start,
+      end: last.range.end,
+    };
+  }
 
   // Check if there's a blank line after imports
-  // True if: no code after imports, or next line after imports is blank
   let hasBlankLineAfterImports = true;
-  if (lastImportLine >= 0 && lastImportLine + 1 < lines.length) {
-    // If there's code after the semicolon on the same line, no blank line needed (handled separately)
-    if (lastImportEndCol === undefined) {
+  if (imports.length > 0) {
+    const lastImport = imports[imports.length - 1];
+    const lastLine = lastImport.range.end.line;
+    const lastCol = lastImport.range.end.column;
+
+    // If the use statement doesn't end at end of line, there's code after it
+    if (lastCol < lines[lastLine].length) {
+      // There's code after the semicolon on the same line - no blank line needed
+      hasBlankLineAfterImports = true;
+    } else if (lastLine + 1 < lines.length) {
       // Check the line after imports
-      const nextLine = lines[lastImportLine + 1].trim();
+      const nextLine = lines[lastLine + 1].trim();
       hasBlankLineAfterImports = nextLine === '';
     }
   }
 
   return {
     imports,
-    beforeImports: beforeImports.length > 0 ? beforeImports + '\n' : '',
-    afterImports: afterImports.length > 0 ? '\n' + afterImports : '',
-    importStartLine: firstImportLine,
-    importStartCol: firstImportStartCol,
-    importEndLine: lastImportLine,
-    lastImportEndCol,
+    importsRange,
     hasBlankLineAfterImports,
   };
 }

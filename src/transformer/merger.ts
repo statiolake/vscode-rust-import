@@ -187,11 +187,19 @@ export function mergeUseStatements(statements: UseStatement[]): UseStatement[] {
     const mergedTree = trieToUseTree(root);
 
     // Create merged statement (take visibility from first, no attributes for merged)
+    // Compute the merged range from all statements in the group
+    const minStartLine = Math.min(...groupStmts.map(s => s.range.start.line));
+    const maxEndLine = Math.max(...groupStmts.map(s => s.range.end.line));
+    const firstOnMinLine = groupStmts.find(s => s.range.start.line === minStartLine)!;
+    const lastOnMaxLine = groupStmts.find(s => s.range.end.line === maxEndLine)!;
+
     result.push({
       visibility: firstStmt.visibility,
       tree: mergedTree,
-      startLine: Math.min(...groupStmts.map(s => s.startLine)),
-      endLine: Math.max(...groupStmts.map(s => s.endLine)),
+      range: {
+        start: { line: minStartLine, column: firstOnMinLine.range.start.column },
+        end: { line: maxEndLine, column: lastOnMaxLine.range.end.column },
+      },
     });
   }
 

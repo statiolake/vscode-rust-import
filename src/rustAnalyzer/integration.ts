@@ -357,22 +357,43 @@ export function collectRemoveUnusedEdits(
         continue; // No unused symbols in this import
       }
 
-      log(`\nProcessing import at lines ${stmt.startLine + 1}-${stmt.endLine + 1}`);
+      log(`\nProcessing import at lines ${stmt.range.start.line + 1}-${stmt.range.end.line + 1}`);
       log(`  Symbols: ${symbolsInImport.join(', ')}`);
       log(`  Unused: ${unusedInThisImport.join(', ')}`);
 
       // Filter the tree to remove unused symbols
       const filteredTree = filterUseTree(stmt.tree, unusedSymbols);
 
-      const range = new vscode.Range(
-        new vscode.Position(stmt.startLine, 0),
-        new vscode.Position(stmt.endLine + 1, 0)
-      );
+      // Use precise start/end positions from the statement's range
+      const startLine = stmt.range.start.line;
+      const endLine = stmt.range.end.line;
+      const startCol = stmt.range.start.column;
+      const endCol = stmt.range.end.column;
+
+      // Check if there's code before/after the import on the same line
+      const hasCodeBefore = startCol > 0;
+      const hasCodeAfter = endCol < document.lineAt(endLine).text.length;
 
       if (!filteredTree) {
         // Entire import is unused - delete it
         log(`  Will delete entire import`);
-        result.edits.push({ range, text: null });
+
+        let range: vscode.Range;
+        if (hasCodeBefore || hasCodeAfter) {
+          // Use statement is part of a line with other code - delete just the use statement
+          range = new vscode.Range(
+            new vscode.Position(startLine, startCol),
+            new vscode.Position(endLine, endCol)
+          );
+          result.edits.push({ range, text: '' });
+        } else {
+          // Use statement occupies full lines - delete entire lines including attributes
+          range = new vscode.Range(
+            new vscode.Position(startLine, 0),
+            new vscode.Position(endLine + 1, 0)
+          );
+          result.edits.push({ range, text: null });
+        }
         result.count += unusedInThisImport.length;
       } else {
         // Some symbols remain - reformat the import
@@ -380,10 +401,28 @@ export function collectRemoveUnusedEdits(
         const attributes = stmt.attributes && stmt.attributes.length > 0
           ? stmt.attributes.join('\n') + '\n'
           : '';
-        const newImport = `${attributes}${visibility}use ${formatUseTree(filteredTree)};\n`;
+        const newImport = `${visibility}use ${formatUseTree(filteredTree)};`;
 
-        log(`  Will replace with: ${newImport.trim()}`);
-        result.edits.push({ range, text: newImport });
+        let range: vscode.Range;
+        let replacement: string;
+        if (hasCodeBefore || hasCodeAfter) {
+          // Use statement is part of a line - replace just the use statement portion
+          range = new vscode.Range(
+            new vscode.Position(startLine, startCol),
+            new vscode.Position(endLine, endCol)
+          );
+          replacement = newImport;
+        } else {
+          // Use statement occupies full lines
+          range = new vscode.Range(
+            new vscode.Position(startLine, 0),
+            new vscode.Position(endLine + 1, 0)
+          );
+          replacement = `${attributes}${newImport}\n`;
+        }
+
+        log(`  Will replace with: ${newImport}`);
+        result.edits.push({ range, text: replacement });
         result.count += unusedInThisImport.length;
       }
     }
