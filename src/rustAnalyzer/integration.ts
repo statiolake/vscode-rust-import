@@ -118,15 +118,12 @@ export async function autoImportUnresolvedSymbols(
       log(`\nApplying ${importsToAdd.size} imports...`);
 
       const edit = new vscode.WorkspaceEdit();
-      const importStatements = Array.from(importsToAdd)
-        .map(path => `use ${path};`)
-        .join('\n') + '\n';
-
       // Find the right position to insert imports
       // Must be after: #![...], //!, extern crate
       const text = document.getText();
       const lines = text.split('\n');
       let insertLine = 0;
+      let needsBlankLine = false;
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -146,10 +143,15 @@ export async function autoImportUnresolvedSymbols(
           insertLine = i;
           break;
         } else if (line.length > 0 && !line.startsWith('#[')) {
-          // Found other code, insert before it
+          // Found other code (not use/mod), need blank line after imports
+          needsBlankLine = true;
           break;
         }
       }
+
+      const importStatements = Array.from(importsToAdd)
+        .map(path => `use ${path};`)
+        .join('\n') + '\n' + (needsBlankLine ? '\n' : '');
 
       log(`  Inserting at line ${insertLine}`);
       edit.insert(document.uri, new vscode.Position(insertLine, 0), importStatements);
