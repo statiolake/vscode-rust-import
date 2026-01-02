@@ -2,7 +2,7 @@
   "name": "vscode-rust-import",
   "displayName": "Rust Import Organizer",
   "description": "Organize Rust imports by sorting, grouping, and merging use statements",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "statiolake",
   "repository": {
     "type": "git",
