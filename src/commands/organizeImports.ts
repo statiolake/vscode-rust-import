@@ -147,14 +147,30 @@ async function groupAndSortImports(document: vscode.TextDocument): Promise<boole
     return false;
   }
 
+  // Determine start/end columns - if there's code before/after the imports on the same line,
+  // we need to preserve it
+  const startCol = parseResult.importStartCol ?? 0;
+  const endCol = parseResult.lastImportEndCol ?? document.lineAt(endLine).text.length;
+  const hasCodeBeforeImports = parseResult.importStartCol !== undefined;
+  const hasCodeAfterImports = parseResult.lastImportEndCol !== undefined;
+
   // Apply the edit
   const range = new vscode.Range(
-    new vscode.Position(startLine, 0),
-    new vscode.Position(endLine, document.lineAt(endLine).text.length)
+    new vscode.Position(startLine, startCol),
+    new vscode.Position(endLine, endCol)
   );
 
+  // Build formatted text with proper spacing
+  let formattedText = formattedImports.trimEnd();
+  if (hasCodeBeforeImports) {
+    formattedText = '\n\n' + formattedText;
+  }
+  if (hasCodeAfterImports) {
+    formattedText = formattedText + '\n\n';
+  }
+
   await editor.edit(editBuilder => {
-    editBuilder.replace(range, formattedImports.trimEnd());
+    editBuilder.replace(range, formattedText);
   });
 
   return true;

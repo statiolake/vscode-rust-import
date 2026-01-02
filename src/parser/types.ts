@@ -26,7 +26,9 @@ export interface UseStatement {
   tree: UseTree;
   attributes?: string[];  // #[cfg(...)] etc.
   startLine: number;
+  startCol?: number;  // Column where the use statement starts (if not start of line)
   endLine: number;
+  endCol?: number;  // Column where the use statement ends (after semicolon)
 }
 
 /**
@@ -65,5 +67,7 @@ export interface ParseResult {
   beforeImports: string;  // Content before the first import
   afterImports: string;   // Content after the last import
   importStartLine: number;
+  importStartCol?: number;  // Column where the first import starts (if not start of line)
   importEndLine: number;
+  lastImportEndCol?: number;  // Column where the last import ends (if not end of line)
 }

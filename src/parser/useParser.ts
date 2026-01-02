@@ -339,7 +339,9 @@ export function parseUseStatement(
   useStr: string,
   attributes: string[] = [],
   startLine: number = 0,
-  endLine: number = 0
+  startCol?: number,
+  endLine: number = 0,
+  endCol?: number
 ): UseStatement {
   const tokens = tokenize(useStr);
   const parser = new UseTreeParser(tokens);
@@ -350,8 +352,45 @@ export function parseUseStatement(
     tree,
     attributes,
     startLine,
+    startCol,
     endLine,
+    endCol,
   };
+}
+
+/**
+ * Find the end of a use statement in a line, tracking brace count
+ * Returns the column after the semicolon, or -1 if not found
+ */
+function findUseEndInLine(line: string, startCol: number, braceCount: number): { endCol: number; braceCount: number } {
+  let col = startCol;
+  let count = braceCount;
+
+  while (col < line.length) {
+    const ch = line[col];
+    if (ch === '{') {
+      count++;
+    } else if (ch === '}') {
+      count--;
+    } else if (ch === ';' && count === 0) {
+      return { endCol: col + 1, braceCount: count };
+    }
+    col++;
+  }
+
+  return { endCol: -1, braceCount: count };
+}
+
+/**
+ * Find the start column of a use statement in a line
+ */
+function findUseStartInLine(line: string): number {
+  // Match pub/pub(...) use or just use
+  const match = line.match(/(pub\s*(\([^)]*\))?\s*)?use\s+/);
+  if (match) {
+    return line.indexOf(match[0]);
+  }
+  return 0;
 }
 
 /**
@@ -363,10 +402,13 @@ export function parseRustFile(content: string): ParseResult {
 
   let i = 0;
   let firstImportLine = -1;
+  let firstImportStartCol: number | undefined;
   let lastImportLine = -1;
+  let lastImportEndCol: number | undefined;
   let inUseStatement = false;
   let currentUseLines: string[] = [];
   let currentUseStartLine = 0;
+  let currentUseStartCol = 0;
   let braceCount = 0;
 
   // Skip initial attributes and comments at file level (like #![...])
@@ -397,34 +439,46 @@ export function parseRustFile(content: string): ParseResult {
         continue;
       }
 
-      // Check if this is a use statement
-      const useMatch = trimmedLine.match(/^(pub\s*(\([^)]*\))?\s*)?use\s+/);
+      // Check if this line contains a use statement (can be anywhere in the line)
+      const useMatch = line.match(/(pub\s*(\([^)]*\))?\s*)?use\s+/);
       if (useMatch) {
         inUseStatement = true;
         currentUseStartLine = findStartLine(lines, i);
-        currentUseLines = [line];
-        braceCount = (line.match(/{/g) || []).length - (line.match(/}/g) || []).length;
+        currentUseStartCol = findUseStartInLine(line);
+        braceCount = 0;
 
-        if (trimmedLine.endsWith(';') && braceCount === 0) {
-          // Single-line use statement
-          const fullUseStr = currentUseLines.join('\n');
+        // Find use statement end in this line (start searching from beginning)
+        const result = findUseEndInLine(line, currentUseStartCol, braceCount);
+        braceCount = result.braceCount;
+
+        if (result.endCol !== -1) {
+          // Use statement ends in this line
+          const useStr = line.substring(currentUseStartCol, result.endCol);
+          currentUseLines = [useStr];
           const attributes = extractAttributes(lines, i);
           const startLine = currentUseStartLine;
+          const startCol = currentUseStartCol > 0 ? currentUseStartCol : undefined;
 
           try {
-            const useStmt = parseUseStatement(fullUseStr, attributes, startLine, i);
+            const endCol = result.endCol < line.length ? result.endCol : undefined;
+            const useStmt = parseUseStatement(useStr, attributes, startLine, startCol, i, endCol);
             imports.push(useStmt);
 
             if (firstImportLine === -1) {
               firstImportLine = startLine;
+              firstImportStartCol = startCol;
             }
             lastImportLine = i;
+            lastImportEndCol = endCol;
           } catch (e) {
             // Skip malformed use statements
           }
 
           inUseStatement = false;
           currentUseLines = [];
+        } else {
+          // Use statement continues to next line
+          currentUseLines = [line.substring(currentUseStartCol)];
         }
 
         i++;
@@ -440,28 +494,36 @@ export function parseRustFile(content: string): ParseResult {
     }
 
     // Continue multi-line use statement
-    currentUseLines.push(line);
-    braceCount += (line.match(/{/g) || []).length - (line.match(/}/g) || []).length;
+    const result = findUseEndInLine(line, 0, braceCount);
+    braceCount = result.braceCount;
 
-    if (trimmedLine.endsWith(';') && braceCount === 0) {
-      // End of multi-line use statement
+    if (result.endCol !== -1) {
+      // Use statement ends in this line
+      currentUseLines.push(line.substring(0, result.endCol));
       const fullUseStr = currentUseLines.join('\n');
       const attributes = extractAttributes(lines, currentUseStartLine);
+      const startCol = currentUseStartCol > 0 ? currentUseStartCol : undefined;
 
       try {
-        const useStmt = parseUseStatement(fullUseStr, attributes, currentUseStartLine, i);
+        const endCol = result.endCol < line.length ? result.endCol : undefined;
+        const useStmt = parseUseStatement(fullUseStr, attributes, currentUseStartLine, startCol, i, endCol);
         imports.push(useStmt);
 
         if (firstImportLine === -1) {
           firstImportLine = currentUseStartLine;
+          firstImportStartCol = startCol;
         }
         lastImportLine = i;
+        lastImportEndCol = endCol;
       } catch (e) {
         // Skip malformed use statements
       }
 
       inUseStatement = false;
       currentUseLines = [];
+    } else {
+      // Continue accumulating
+      currentUseLines.push(line);
     }
 
     i++;
@@ -481,7 +543,9 @@ export function parseRustFile(content: string): ParseResult {
     beforeImports: beforeImports.length > 0 ? beforeImports + '\n' : '',
     afterImports: afterImports.length > 0 ? '\n' + afterImports : '',
     importStartLine: firstImportLine,
+    importStartCol: firstImportStartCol,
     importEndLine: lastImportLine,
+    lastImportEndCol,
   };
 }
 

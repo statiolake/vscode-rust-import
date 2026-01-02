@@ -160,6 +160,49 @@ fn main() {
       const result = parseRustFile(content);
       assert.strictEqual(result.imports.length, 0);
     });
+
+    test('handles use statement with code after semicolon on same line', () => {
+      const content = `use std::io;const X: usize = 4;
+
+fn main() {}`;
+      const result = parseRustFile(content);
+      assert.strictEqual(result.imports.length, 1);
+      assert.strictEqual(result.imports[0].tree.segment.name, 'std');
+      // endCol should be set to the position after the semicolon
+      assert.strictEqual(result.imports[0].endCol, 12);
+      assert.strictEqual(result.lastImportEndCol, 12);
+    });
+
+    test('handles use statement with code before on same line', () => {
+      const content = `fn foo() {} use std::io;
+
+fn main() {}`;
+      const result = parseRustFile(content);
+      assert.strictEqual(result.imports.length, 1);
+      assert.strictEqual(result.imports[0].tree.segment.name, 'std');
+      // startCol should be set to the position of 'use'
+      assert.strictEqual(result.imports[0].startCol, 12);
+      assert.strictEqual(result.importStartCol, 12);
+    });
+
+    test('handles use statement with code before and after on same line', () => {
+      const content = `fn foo() {} use std::io; const X: usize = 4;`;
+      const result = parseRustFile(content);
+      assert.strictEqual(result.imports.length, 1);
+      assert.strictEqual(result.imports[0].tree.segment.name, 'std');
+      assert.strictEqual(result.imports[0].startCol, 12);
+      assert.strictEqual(result.imports[0].endCol, 24);
+    });
+
+    test('handles multiple use statements where last has code after', () => {
+      const content = `use std::fs;
+use std::io;const X: usize = 4;`;
+      const result = parseRustFile(content);
+      assert.strictEqual(result.imports.length, 2);
+      assert.strictEqual(result.imports[0].endCol, undefined);
+      assert.strictEqual(result.imports[1].endCol, 12);
+      assert.strictEqual(result.lastImportEndCol, 12);
+    });
   });
 
   suite('getRootPath', () => {
