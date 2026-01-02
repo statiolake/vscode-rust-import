@@ -6,7 +6,7 @@ import { mergeGroupedStatements } from '../transformer/merger';
 import { sortUseStatements } from '../transformer/sorter';
 import { formatImportsForFile } from '../formatter/useFormatter';
 import { CargoDependencies, GroupedImports } from '../parser/types';
-import { isRustAnalyzerAvailable, autoImportUnresolvedSymbols } from '../rustAnalyzer/integration';
+import { isRustAnalyzerAvailable, autoImportUnresolvedSymbols, removeUnusedImports } from '../rustAnalyzer/integration';
 
 /**
  * Organize imports in the current Rust file
@@ -35,6 +35,7 @@ function getConfig() {
   return {
     enableAutoImport: config.get<boolean>('enableAutoImport', true),
     enableGroupImports: config.get<boolean>('enableGroupImports', true),
+    enableRemoveUnusedImports: config.get<boolean>('enableRemoveUnusedImports', true),
   };
 }
 
@@ -50,7 +51,18 @@ export async function organizeImportsInDocument(document: vscode.TextDocument): 
   const config = getConfig();
   let didChange = false;
 
-  // Step 1: Auto-import unresolved symbols (if enabled)
+  // Step 1: Remove unused imports (if enabled)
+  if (config.enableRemoveUnusedImports) {
+    const raAvailable = await isRustAnalyzerAvailable();
+    if (raAvailable) {
+      const removeCount = await removeUnusedImports(document);
+      if (removeCount > 0) {
+        didChange = true;
+      }
+    }
+  }
+
+  // Step 2: Auto-import unresolved symbols (if enabled)
   if (config.enableAutoImport) {
     const raAvailable = await isRustAnalyzerAvailable();
     if (raAvailable) {
@@ -61,7 +73,7 @@ export async function organizeImportsInDocument(document: vscode.TextDocument): 
     }
   }
 
-  // Step 2: Group and sort imports (if enabled)
+  // Step 3: Group and sort imports (if enabled)
   if (config.enableGroupImports) {
     const grouped = await groupAndSortImports(document);
     if (grouped) {

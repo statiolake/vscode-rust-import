@@ -109,6 +109,7 @@ Or for Rust files only:
 |---------|---------|-------------|
 | `rustImportOrganizer.enableAutoImport` | `true` | Enable auto-import of unresolved symbols when organizing imports |
 | `rustImportOrganizer.enableGroupImports` | `true` | Enable sorting and grouping of imports when organizing imports |
+| `rustImportOrganizer.enableRemoveUnusedImports` | `true` | Enable removal of unused imports when organizing imports |
 
 Example configuration in `settings.json`:
 

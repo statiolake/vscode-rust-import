@@ -57,6 +57,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable sorting and grouping of imports when organizing imports"
+        },
+        "rustImportOrganizer.enableRemoveUnusedImports": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable removal of unused imports when organizing imports"
         }
       }
     }

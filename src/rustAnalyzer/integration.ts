@@ -172,3 +172,91 @@ export async function autoImportUnresolvedSymbols(
 
   return 0;
 }
+
+/**
+ * Remove unused imports based on diagnostics
+ * Looks for "unused import" diagnostics and removes those lines
+ */
+export async function removeUnusedImports(
+  document: vscode.TextDocument
+): Promise<number> {
+  log(`\n=== removeUnusedImports started ===`);
+  log(`Document: ${document.uri.fsPath}`);
+
+  try {
+    const diagnostics = vscode.languages.getDiagnostics(document.uri);
+    log(`Found ${diagnostics.length} total diagnostics`);
+
+    // Find unused import diagnostics
+    const unusedImportDiagnostics = diagnostics.filter(d => {
+      const isRustSource = d.source === 'rust-analyzer' || d.source === 'rustc';
+      const isUnusedImport = d.message.includes('unused import') ||
+                              d.message.includes('unused_imports');
+      return isRustSource && isUnusedImport;
+    });
+
+    log(`Found ${unusedImportDiagnostics.length} unused import diagnostics`);
+
+    if (unusedImportDiagnostics.length === 0) {
+      return 0;
+    }
+
+    // Get code actions for each diagnostic and apply "Remove unused import" fixes
+    let removeCount = 0;
+
+    for (const diagnostic of unusedImportDiagnostics) {
+      log(`\nProcessing: "${diagnostic.message.split('\n')[0]}" at line ${diagnostic.range.start.line + 1}`);
+
+      const codeActions = await vscode.commands.executeCommand<vscode.CodeAction[]>(
+        'vscode.executeCodeActionProvider',
+        document.uri,
+        diagnostic.range,
+        vscode.CodeActionKind.QuickFix.value
+      );
+
+      if (!codeActions || codeActions.length === 0) {
+        log(`  No code actions available`);
+        continue;
+      }
+
+      // Find "Remove unused import" or similar action
+      const removeAction = codeActions.find(action => {
+        const title = action.title.toLowerCase();
+        return title.includes('remove') &&
+               (title.includes('unused') || title.includes('import'));
+      });
+
+      if (removeAction) {
+        log(`  Applying: "${removeAction.title}"`);
+
+        if (removeAction.edit) {
+          const applied = await vscode.workspace.applyEdit(removeAction.edit);
+          if (applied) {
+            removeCount++;
+            log(`  Successfully removed`);
+          }
+        } else if (removeAction.command) {
+          try {
+            await vscode.commands.executeCommand(
+              removeAction.command.command,
+              ...(removeAction.command.arguments || [])
+            );
+            removeCount++;
+            log(`  Command executed successfully`);
+          } catch (error) {
+            log(`  Command failed: ${error}`);
+          }
+        }
+      } else {
+        log(`  No remove action found`);
+      }
+    }
+
+    log(`\nTotal unused imports removed: ${removeCount}`);
+    return removeCount;
+  } catch (error) {
+    log(`Failed to remove unused imports: ${error}`);
+  }
+
+  return 0;
+}
