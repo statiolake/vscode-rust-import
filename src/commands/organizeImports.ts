@@ -6,7 +6,13 @@ import { mergeGroupedStatements } from '../transformer/merger';
 import { sortUseStatements } from '../transformer/sorter';
 import { formatImportsForFile } from '../formatter/useFormatter';
 import { CargoDependencies, GroupedImports } from '../parser/types';
-import { isRustAnalyzerAvailable, autoImportUnresolvedSymbols, removeUnusedImports } from '../rustAnalyzer/integration';
+import {
+  isRustAnalyzerAvailable,
+  autoImportUnresolvedSymbols,
+  removeUnusedImports,
+  collectAutoImportEdits,
+  collectRemoveUnusedEdits,
+} from '../rustAnalyzer/integration';
 
 /**
  * Organize imports in the current Rust file
@@ -49,31 +55,48 @@ export async function organizeImportsInDocument(document: vscode.TextDocument): 
   }
 
   const config = getConfig();
+
+  // Collect all edits first, then apply them together
+  const raAvailable = await isRustAnalyzerAvailable();
+
+  // Step 1: Collect remove unused and auto-import edits (both depend on diagnostics)
+  const combinedEdit = new vscode.WorkspaceEdit();
+  let editCount = 0;
+
+  if (raAvailable) {
+    // Collect remove unused edits
+    if (config.enableRemoveUnusedImports) {
+      const removeResult = collectRemoveUnusedEdits(document);
+      for (const e of removeResult.edits) {
+        if (e.text === null) {
+          combinedEdit.delete(document.uri, e.range);
+        } else {
+          combinedEdit.replace(document.uri, e.range, e.text);
+        }
+      }
+      editCount += removeResult.count;
+    }
+
+    // Collect auto-import edits
+    if (config.enableAutoImport) {
+      const autoImportResult = await collectAutoImportEdits(document);
+      for (const e of autoImportResult.edits) {
+        combinedEdit.insert(document.uri, e.position, e.text);
+      }
+      editCount += autoImportResult.count;
+    }
+  }
+
+  // Apply combined edits
   let didChange = false;
-
-  // Step 1: Remove unused imports (if enabled)
-  if (config.enableRemoveUnusedImports) {
-    const raAvailable = await isRustAnalyzerAvailable();
-    if (raAvailable) {
-      const removeCount = await removeUnusedImports(document);
-      if (removeCount > 0) {
-        didChange = true;
-      }
+  if (editCount > 0) {
+    const applied = await vscode.workspace.applyEdit(combinedEdit);
+    if (applied) {
+      didChange = true;
     }
   }
 
-  // Step 2: Auto-import unresolved symbols (if enabled)
-  if (config.enableAutoImport) {
-    const raAvailable = await isRustAnalyzerAvailable();
-    if (raAvailable) {
-      const importCount = await autoImportUnresolvedSymbols(document);
-      if (importCount > 0) {
-        didChange = true;
-      }
-    }
-  }
-
-  // Step 3: Group and sort imports (if enabled)
+  // Step 2: Group and sort imports (after remove/add edits are applied)
   if (config.enableGroupImports) {
     const grouped = await groupAndSortImports(document);
     if (grouped) {

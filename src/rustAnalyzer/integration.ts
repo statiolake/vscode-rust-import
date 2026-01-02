@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import { parseRustFile, flattenUseTree } from '../parser/useParser';
+import type { UseTree } from '../parser/types';
 
 const OUTPUT_CHANNEL = vscode.window.createOutputChannel('Rust Import Organizer');
 
@@ -52,15 +54,23 @@ function extractImportPath(title: string): string | null {
   return path;
 }
 
+export interface AutoImportResult {
+  edits: Array<{ position: vscode.Position; text: string }>;
+  count: number;
+}
+
 /**
- * Auto-import unresolved symbols using Rust Analyzer quick fixes
- * Only applies imports when there is exactly one suggestion (like goimports)
+ * Collect auto-import edits for unresolved symbols using Rust Analyzer quick fixes
+ * Only adds imports when there is exactly one suggestion (like goimports)
+ * Returns edits to be applied later (does not apply them)
  */
-export async function autoImportUnresolvedSymbols(
+export async function collectAutoImportEdits(
   document: vscode.TextDocument
-): Promise<number> {
-  log(`\n=== autoImportUnresolvedSymbols started ===`);
+): Promise<AutoImportResult> {
+  log(`\n=== collectAutoImportEdits started ===`);
   log(`Document: ${document.uri.fsPath}`);
+
+  const result: AutoImportResult = { edits: [], count: 0 };
 
   // Collect all import suggestions: Map from symbol name to set of possible paths
   const symbolToImports = new Map<string, Set<string>>();
@@ -113,11 +123,10 @@ export async function autoImportUnresolvedSymbols(
       }
     }
 
-    // Apply all collected imports at once
+    // Create edits for all collected imports
     if (importsToAdd.size > 0) {
-      log(`\nApplying ${importsToAdd.size} imports...`);
+      log(`\nPreparing ${importsToAdd.size} imports...`);
 
-      const edit = new vscode.WorkspaceEdit();
       // Find the right position to insert imports
       // Must be after: #![...], //!, extern crate
       const text = document.getText();
@@ -153,109 +162,265 @@ export async function autoImportUnresolvedSymbols(
         .map(path => `use ${path};`)
         .join('\n') + '\n' + (needsBlankLine ? '\n' : '');
 
-      log(`  Inserting at line ${insertLine}`);
-      edit.insert(document.uri, new vscode.Position(insertLine, 0), importStatements);
-
-      const applied = await vscode.workspace.applyEdit(edit);
-      if (applied) {
-        log(`Successfully added ${importsToAdd.size} imports`);
-        return importsToAdd.size;
-      } else {
-        log(`Failed to apply imports`);
-      }
+      log(`  Will insert at line ${insertLine}`);
+      result.edits.push({
+        position: new vscode.Position(insertLine, 0),
+        text: importStatements,
+      });
+      result.count = importsToAdd.size;
     } else {
       log(`\nNo unambiguous imports to add`);
     }
   } catch (error) {
-    log(`Failed to auto-import symbols: ${error}`);
+    log(`Failed to collect auto-import edits: ${error}`);
+  }
+
+  return result;
+}
+
+/**
+ * Auto-import unresolved symbols (legacy function that applies edits immediately)
+ */
+export async function autoImportUnresolvedSymbols(
+  document: vscode.TextDocument
+): Promise<number> {
+  const result = await collectAutoImportEdits(document);
+
+  if (result.edits.length > 0) {
+    const edit = new vscode.WorkspaceEdit();
+    for (const e of result.edits) {
+      edit.insert(document.uri, e.position, e.text);
+    }
+    const applied = await vscode.workspace.applyEdit(edit);
+    if (applied) {
+      log(`Successfully added ${result.count} imports`);
+      return result.count;
+    } else {
+      log(`Failed to apply imports`);
+      return 0;
+    }
   }
 
   return 0;
 }
 
 /**
- * Remove unused imports based on diagnostics
- * Looks for "unused import" diagnostics and removes those lines
+ * Extract unused symbol name from diagnostic message
+ * e.g., "unused import: `Duration`" -> "Duration"
  */
-export async function removeUnusedImports(
+function extractUnusedSymbol(message: string): string | null {
+  // Match patterns like "unused import: `Symbol`" or "unused import: `path::Symbol`"
+  const match = message.match(/unused import:?\s*`([^`]+)`/i);
+  if (match) {
+    const path = match[1];
+    // Return just the symbol name (last segment)
+    return path.split('::').pop() || null;
+  }
+  return null;
+}
+
+/**
+ * Filter a UseTree to remove unused symbols
+ * Returns null if the entire tree should be removed
+ */
+function filterUseTree(tree: UseTree, unusedSymbols: Set<string>): UseTree | null {
+  // Get the symbol name (last segment or alias)
+  const symbolName = tree.segment.alias || tree.segment.name;
+
+  // Leaf node (no children)
+  if (!tree.children || tree.children.length === 0) {
+    // Check if this symbol is unused
+    if (unusedSymbols.has(symbolName)) {
+      return null; // Remove this node
+    }
+    return tree; // Keep this node
+  }
+
+  // Has children - filter them recursively
+  const filteredChildren: UseTree[] = [];
+  for (const child of tree.children) {
+    const filtered = filterUseTree(child, unusedSymbols);
+    if (filtered) {
+      filteredChildren.push(filtered);
+    }
+  }
+
+  // If no children remain, check if we should keep this as a leaf
+  if (filteredChildren.length === 0) {
+    // If this was a self import, check if self is unused
+    if (tree.isSelf && unusedSymbols.has('self')) {
+      return null;
+    }
+    // Otherwise, the entire subtree was unused
+    return null;
+  }
+
+  // Return tree with filtered children
+  return {
+    ...tree,
+    children: filteredChildren,
+  };
+}
+
+/**
+ * Format a UseTree back to a string
+ */
+function formatUseTree(tree: UseTree): string {
+  const segment = tree.segment.alias
+    ? `${tree.segment.name} as ${tree.segment.alias}`
+    : tree.segment.name;
+
+  if (tree.isGlob) {
+    return '*';
+  }
+
+  if (tree.isSelf) {
+    return segment;
+  }
+
+  if (!tree.children || tree.children.length === 0) {
+    return segment;
+  }
+
+  if (tree.children.length === 1 && !tree.children[0].isSelf) {
+    // Single child, can be flattened (unless it's self)
+    return `${segment}::${formatUseTree(tree.children[0])}`;
+  }
+
+  // Multiple children or self - use braces
+  const childrenStr = tree.children.map(c => formatUseTree(c)).join(', ');
+  return `${segment}::{${childrenStr}}`;
+}
+
+export interface RemoveUnusedResult {
+  edits: Array<{ range: vscode.Range; text: string | null }>; // null means delete
+  count: number;
+}
+
+/**
+ * Collect edits to remove unused imports based on diagnostics
+ * Returns edits to be applied later (does not apply them)
+ */
+export function collectRemoveUnusedEdits(
   document: vscode.TextDocument
-): Promise<number> {
-  log(`\n=== removeUnusedImports started ===`);
+): RemoveUnusedResult {
+  log(`\n=== collectRemoveUnusedEdits started ===`);
   log(`Document: ${document.uri.fsPath}`);
+
+  const result: RemoveUnusedResult = { edits: [], count: 0 };
 
   try {
     const diagnostics = vscode.languages.getDiagnostics(document.uri);
     log(`Found ${diagnostics.length} total diagnostics`);
 
-    // Find unused import diagnostics
-    const unusedImportDiagnostics = diagnostics.filter(d => {
+    // Find unused import diagnostics and extract symbol names
+    const unusedSymbols = new Set<string>();
+
+    for (const d of diagnostics) {
       const isRustSource = d.source === 'rust-analyzer' || d.source === 'rustc';
       const isUnusedImport = d.message.includes('unused import') ||
                               d.message.includes('unused_imports');
-      return isRustSource && isUnusedImport;
-    });
 
-    log(`Found ${unusedImportDiagnostics.length} unused import diagnostics`);
-
-    if (unusedImportDiagnostics.length === 0) {
-      return 0;
+      if (isRustSource && isUnusedImport) {
+        const symbol = extractUnusedSymbol(d.message);
+        if (symbol) {
+          log(`  Found unused symbol: ${symbol}`);
+          unusedSymbols.add(symbol);
+        }
+      }
     }
 
-    // Get code actions for each diagnostic and apply "Remove unused import" fixes
-    let removeCount = 0;
+    log(`Found ${unusedSymbols.size} unused symbols`);
 
-    for (const diagnostic of unusedImportDiagnostics) {
-      log(`\nProcessing: "${diagnostic.message.split('\n')[0]}" at line ${diagnostic.range.start.line + 1}`);
+    if (unusedSymbols.size === 0) {
+      return result;
+    }
 
-      const codeActions = await vscode.commands.executeCommand<vscode.CodeAction[]>(
-        'vscode.executeCodeActionProvider',
-        document.uri,
-        diagnostic.range,
-        vscode.CodeActionKind.QuickFix.value
+    // Parse the document to find use statements
+    const text = document.getText();
+    const parseResult = parseRustFile(text);
+
+    if (parseResult.imports.length === 0) {
+      return result;
+    }
+
+    // Process each import statement
+    for (const stmt of parseResult.imports) {
+      // Flatten to get all symbol names in this import
+      const paths = flattenUseTree(stmt.tree);
+      const symbolsInImport = paths.map(p => p[p.length - 1]);
+
+      // Check which symbols are unused
+      const unusedInThisImport = symbolsInImport.filter(s => unusedSymbols.has(s));
+
+      if (unusedInThisImport.length === 0) {
+        continue; // No unused symbols in this import
+      }
+
+      log(`\nProcessing import at lines ${stmt.startLine + 1}-${stmt.endLine + 1}`);
+      log(`  Symbols: ${symbolsInImport.join(', ')}`);
+      log(`  Unused: ${unusedInThisImport.join(', ')}`);
+
+      // Filter the tree to remove unused symbols
+      const filteredTree = filterUseTree(stmt.tree, unusedSymbols);
+
+      const range = new vscode.Range(
+        new vscode.Position(stmt.startLine, 0),
+        new vscode.Position(stmt.endLine + 1, 0)
       );
 
-      if (!codeActions || codeActions.length === 0) {
-        log(`  No code actions available`);
-        continue;
-      }
-
-      // Find "Remove unused import" or similar action
-      const removeAction = codeActions.find(action => {
-        const title = action.title.toLowerCase();
-        return title.includes('remove') &&
-               (title.includes('unused') || title.includes('import'));
-      });
-
-      if (removeAction) {
-        log(`  Applying: "${removeAction.title}"`);
-
-        if (removeAction.edit) {
-          const applied = await vscode.workspace.applyEdit(removeAction.edit);
-          if (applied) {
-            removeCount++;
-            log(`  Successfully removed`);
-          }
-        } else if (removeAction.command) {
-          try {
-            await vscode.commands.executeCommand(
-              removeAction.command.command,
-              ...(removeAction.command.arguments || [])
-            );
-            removeCount++;
-            log(`  Command executed successfully`);
-          } catch (error) {
-            log(`  Command failed: ${error}`);
-          }
-        }
+      if (!filteredTree) {
+        // Entire import is unused - delete it
+        log(`  Will delete entire import`);
+        result.edits.push({ range, text: null });
+        result.count += unusedInThisImport.length;
       } else {
-        log(`  No remove action found`);
+        // Some symbols remain - reformat the import
+        const visibility = stmt.visibility ? `${stmt.visibility} ` : '';
+        const attributes = stmt.attributes && stmt.attributes.length > 0
+          ? stmt.attributes.join('\n') + '\n'
+          : '';
+        const newImport = `${attributes}${visibility}use ${formatUseTree(filteredTree)};\n`;
+
+        log(`  Will replace with: ${newImport.trim()}`);
+        result.edits.push({ range, text: newImport });
+        result.count += unusedInThisImport.length;
       }
     }
 
-    log(`\nTotal unused imports removed: ${removeCount}`);
-    return removeCount;
+    log(`\nTotal unused imports to remove: ${result.count}`);
   } catch (error) {
-    log(`Failed to remove unused imports: ${error}`);
+    log(`Failed to collect remove unused edits: ${error}`);
+  }
+
+  return result;
+}
+
+/**
+ * Remove unused imports (legacy function that applies edits immediately)
+ */
+export async function removeUnusedImports(
+  document: vscode.TextDocument
+): Promise<number> {
+  const result = collectRemoveUnusedEdits(document);
+
+  if (result.edits.length > 0) {
+    const edit = new vscode.WorkspaceEdit();
+    for (const e of result.edits) {
+      if (e.text === null) {
+        edit.delete(document.uri, e.range);
+      } else {
+        edit.replace(document.uri, e.range, e.text);
+      }
+    }
+    const applied = await vscode.workspace.applyEdit(edit);
+    if (applied) {
+      log(`Successfully removed ${result.count} unused imports`);
+      return result.count;
+    } else {
+      log(`Failed to apply edit`);
+      return 0;
+    }
   }
 
   return 0;
