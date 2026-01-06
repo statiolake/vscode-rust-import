@@ -30,18 +30,18 @@ export interface UsePathSegment {
 export interface UseTree {
   segment: UsePathSegment;
   children?: UseTree[];
-  isGlob?: boolean;  // For wildcard: *
-  isSelf?: boolean;  // For self keyword
+  isGlob?: boolean; // For wildcard: *
+  isSelf?: boolean; // For self keyword
 }
 
 /**
  * Represents a complete use statement with metadata.
  */
 export interface UseStatement {
-  visibility?: string;  // pub, pub(crate), pub(super), etc.
+  visibility?: string; // pub, pub(crate), pub(super), etc.
   tree: UseTree;
-  attributes?: string[];  // #[cfg(...)] etc.
-  range: Range;  // Exact range of the use statement (including visibility, excluding attributes)
+  attributes?: string[]; // #[cfg(...)] etc.
+  range: Range; // Exact range of the use statement (including visibility, excluding attributes)
 }
 
 /**
@@ -49,9 +49,9 @@ export interface UseStatement {
  * Order determines display order in the output.
  */
 export enum ImportCategory {
-  Std = 0,        // std, core, alloc
-  External = 1,   // Third-party crates from Cargo.toml
-  Internal = 2,   // crate::, super::, self::
+  Std = 0, // std, core, alloc
+  External = 1, // Third-party crates from Cargo.toml
+  Internal = 2, // crate::, super::, self::
   Attributed = 3, // Imports with attributes like #[cfg(test)]
 }
 

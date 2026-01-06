@@ -1,5 +1,10 @@
 import * as assert from 'assert';
-import { parseUseStatement, parseRustFile, getRootPath, flattenUseTree } from '../../parser/useParser';
+import {
+  parseUseStatement,
+  parseRustFile,
+  getRootPath,
+  flattenUseTree,
+} from '../../parser/useParser';
 
 suite('UseParser Test Suite', () => {
   suite('parseUseStatement', () => {
@@ -19,7 +24,9 @@ suite('UseParser Test Suite', () => {
     });
 
     test('parses deeply nested use statement', () => {
-      const result = parseUseStatement('use std::{io::{Read, Write}, fs::File};');
+      const result = parseUseStatement(
+        'use std::{io::{Read, Write}, fs::File};',
+      );
       assert.strictEqual(result.tree.segment.name, 'std');
       assert.strictEqual(result.tree.children?.length, 2);
 
@@ -80,7 +87,10 @@ suite('UseParser Test Suite', () => {
     test('parses super import', () => {
       const result = parseUseStatement('use super::parent_module;');
       assert.strictEqual(result.tree.segment.name, 'super');
-      assert.strictEqual(result.tree.children?.[0].segment.name, 'parent_module');
+      assert.strictEqual(
+        result.tree.children?.[0].segment.name,
+        'parent_module',
+      );
     });
   });
 

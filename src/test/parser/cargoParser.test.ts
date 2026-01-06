@@ -9,7 +9,15 @@ import {
 } from '../../parser/cargoParser';
 
 suite('CargoParser Test Suite', () => {
-  const fixturesPath = path.join(__dirname, '..', '..', '..', 'src', 'test', 'fixtures');
+  const fixturesPath = path.join(
+    __dirname,
+    '..',
+    '..',
+    '..',
+    'src',
+    'test',
+    'fixtures',
+  );
   const cargoTomlPath = path.join(fixturesPath, 'Cargo.toml');
 
   suite('parseCargoDependencies', () => {

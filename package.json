@@ -76,7 +76,8 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src",
+    "lint": "eslint src && biome format src",
+    "format": "biome format --write src",
     "test": "vscode-test",
     "package": "vsce package",
     "publish": "vsce publish"
@@ -85,6 +86,7 @@
     "toml": "^3.0.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.3.11",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
     "@types/vscode": "^1.107.0",

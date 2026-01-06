@@ -28,7 +28,7 @@ export async function autoImport(): Promise<void> {
 
   if (!raAvailable) {
     vscode.window.showWarningMessage(
-      'Rust Analyzer extension is required for auto-import. Please install it from the marketplace.'
+      'Rust Analyzer extension is required for auto-import. Please install it from the marketplace.',
     );
     return;
   }

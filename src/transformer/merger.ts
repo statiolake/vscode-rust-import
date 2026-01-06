@@ -122,7 +122,12 @@ function trieToUseTree(node: TrieNode): UseTree {
 
   // Add regular children
   for (const child of node.children.values()) {
-    if (child.isTerminal && child.children.size === 0 && !child.isSelf && !child.isGlob) {
+    if (
+      child.isTerminal &&
+      child.children.size === 0 &&
+      !child.isSelf &&
+      !child.isGlob
+    ) {
       // Leaf node - just add the segment
       children.push({
         segment: { ...child.segment },
@@ -188,16 +193,23 @@ export function mergeUseStatements(statements: UseStatement[]): UseStatement[] {
 
     // Create merged statement (take visibility from first, no attributes for merged)
     // Compute the merged range from all statements in the group
-    const minStartLine = Math.min(...groupStmts.map(s => s.range.start.line));
-    const maxEndLine = Math.max(...groupStmts.map(s => s.range.end.line));
-    const firstOnMinLine = groupStmts.find(s => s.range.start.line === minStartLine)!;
-    const lastOnMaxLine = groupStmts.find(s => s.range.end.line === maxEndLine)!;
+    const minStartLine = Math.min(...groupStmts.map((s) => s.range.start.line));
+    const maxEndLine = Math.max(...groupStmts.map((s) => s.range.end.line));
+    const firstOnMinLine = groupStmts.find(
+      (s) => s.range.start.line === minStartLine,
+    )!;
+    const lastOnMaxLine = groupStmts.find(
+      (s) => s.range.end.line === maxEndLine,
+    )!;
 
     result.push({
       visibility: firstStmt.visibility,
       tree: mergedTree,
       range: {
-        start: { line: minStartLine, column: firstOnMinLine.range.start.column },
+        start: {
+          line: minStartLine,
+          column: firstOnMinLine.range.start.column,
+        },
         end: { line: maxEndLine, column: lastOnMaxLine.range.end.column },
       },
     });
@@ -209,7 +221,9 @@ export function mergeUseStatements(statements: UseStatement[]): UseStatement[] {
 /**
  * Merge statements within each group
  */
-export function mergeGroupedStatements(statements: UseStatement[]): UseStatement[] {
+export function mergeGroupedStatements(
+  statements: UseStatement[],
+): UseStatement[] {
   // Group by visibility (different visibility = different statement)
   const byVisibility = new Map<string, UseStatement[]>();
 

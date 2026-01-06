@@ -13,7 +13,10 @@ suite('Sorter Test Suite', () => {
 
       const sorted = sortUseStatements(statements);
 
-      assert.strictEqual(sorted[0].tree.children?.[0].segment.name, 'collections');
+      assert.strictEqual(
+        sorted[0].tree.children?.[0].segment.name,
+        'collections',
+      );
       assert.strictEqual(sorted[1].tree.children?.[0].segment.name, 'fs');
       assert.strictEqual(sorted[2].tree.children?.[0].segment.name, 'io');
     });
@@ -29,8 +32,14 @@ suite('Sorter Test Suite', () => {
 
       // std::fs::File < std::io::Read < std::io::Write
       assert.strictEqual(sorted[0].tree.children?.[0].segment.name, 'fs');
-      assert.strictEqual(sorted[1].tree.children?.[0].children?.[0].segment.name, 'Read');
-      assert.strictEqual(sorted[2].tree.children?.[0].children?.[0].segment.name, 'Write');
+      assert.strictEqual(
+        sorted[1].tree.children?.[0].children?.[0].segment.name,
+        'Read',
+      );
+      assert.strictEqual(
+        sorted[2].tree.children?.[0].children?.[0].segment.name,
+        'Write',
+      );
     });
   });
 
@@ -75,7 +84,9 @@ suite('Sorter Test Suite', () => {
     });
 
     test('handles deeply nested structures', () => {
-      const stmt = parseUseStatement('use std::{io::{Write, Read}, collections::{HashMap, BTreeMap}};');
+      const stmt = parseUseStatement(
+        'use std::{io::{Write, Read}, collections::{HashMap, BTreeMap}};',
+      );
       const sorted = sortUseTree(stmt.tree);
 
       // collections < io

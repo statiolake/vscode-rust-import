@@ -28,7 +28,9 @@ export async function isRustfmtAvailable(): Promise<boolean> {
  * @param useStatements The use statements to format (as a single string)
  * @returns Formatted use statements, or the original if rustfmt fails
  */
-export async function formatWithRustfmt(useStatements: string): Promise<string> {
+export async function formatWithRustfmt(
+  useStatements: string,
+): Promise<string> {
   return new Promise((resolve) => {
     try {
       const rustfmt = spawn('rustfmt', ['--emit', 'stdout']);
@@ -78,7 +80,7 @@ export async function formatWithRustfmt(useStatements: string): Promise<string> 
  */
 export async function formatUseStatementsWithRustfmt(
   useStatements: string,
-  enabled: boolean = true
+  enabled: boolean = true,
 ): Promise<string> {
   if (!enabled) {
     return useStatements;

@@ -9,12 +9,12 @@ export function activate(context: vscode.ExtensionContext) {
   // Register commands
   const organizeCmd = vscode.commands.registerCommand(
     'rust-import.organizeImports',
-    organizeImports
+    organizeImports,
   );
 
   const autoImportCmd = vscode.commands.registerCommand(
     'rust-import.autoImport',
-    autoImport
+    autoImport,
   );
 
   // Register Code Action Provider
@@ -22,8 +22,9 @@ export function activate(context: vscode.ExtensionContext) {
     { language: 'rust', scheme: 'file' },
     new RustImportCodeActionProvider(),
     {
-      providedCodeActionKinds: RustImportCodeActionProvider.providedCodeActionKinds,
-    }
+      providedCodeActionKinds:
+        RustImportCodeActionProvider.providedCodeActionKinds,
+    },
   );
 
   context.subscriptions.push(organizeCmd, autoImportCmd, codeActionProvider);

@@ -1,13 +1,22 @@
-import { UseStatement, ImportCategory, GroupedImports, CargoDependencies } from '../parser/types';
+import {
+  UseStatement,
+  ImportCategory,
+  GroupedImports,
+  CargoDependencies,
+} from '../parser/types';
 import { getRootPath } from '../parser/useParser';
-import { isStdLibrary, isInternalImport, isDependency } from '../parser/cargoParser';
+import {
+  isStdLibrary,
+  isInternalImport,
+  isDependency,
+} from '../parser/cargoParser';
 
 /**
  * Categorize a use statement based on its root path
  */
 export function categorizeImport(
   stmt: UseStatement,
-  cargoDeps: CargoDependencies
+  cargoDeps: CargoDependencies,
 ): ImportCategory {
   // Attributed imports go to their own group
   if (stmt.attributes && stmt.attributes.length > 0) {
@@ -40,7 +49,7 @@ export function categorizeImport(
  */
 export function groupImports(
   imports: UseStatement[],
-  cargoDeps: CargoDependencies
+  cargoDeps: CargoDependencies,
 ): GroupedImports[] {
   const groups: Map<ImportCategory, UseStatement[]> = new Map();
 

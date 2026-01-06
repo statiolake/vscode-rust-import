@@ -6,7 +6,15 @@ import { parseCargoDependencies } from '../../parser/cargoParser';
 import { ImportCategory, CargoDependencies } from '../../parser/types';
 
 suite('Grouper Test Suite', () => {
-  const fixturesPath = path.join(__dirname, '..', '..', '..', 'src', 'test', 'fixtures');
+  const fixturesPath = path.join(
+    __dirname,
+    '..',
+    '..',
+    '..',
+    'src',
+    'test',
+    'fixtures',
+  );
   const cargoTomlPath = path.join(fixturesPath, 'Cargo.toml');
   let cargoDeps: CargoDependencies;
 
@@ -32,42 +40,71 @@ suite('Grouper Test Suite', () => {
 
     test('categorizes crate as Internal', () => {
       const stmt = parseUseStatement('use crate::module;');
-      assert.strictEqual(categorizeImport(stmt, cargoDeps), ImportCategory.Internal);
+      assert.strictEqual(
+        categorizeImport(stmt, cargoDeps),
+        ImportCategory.Internal,
+      );
     });
 
     test('categorizes super as Internal', () => {
       const stmt = parseUseStatement('use super::parent;');
-      assert.strictEqual(categorizeImport(stmt, cargoDeps), ImportCategory.Internal);
+      assert.strictEqual(
+        categorizeImport(stmt, cargoDeps),
+        ImportCategory.Internal,
+      );
     });
 
     test('categorizes self as Internal', () => {
       const stmt = parseUseStatement('use self::child;');
-      assert.strictEqual(categorizeImport(stmt, cargoDeps), ImportCategory.Internal);
+      assert.strictEqual(
+        categorizeImport(stmt, cargoDeps),
+        ImportCategory.Internal,
+      );
     });
 
     test('categorizes known dependency as External', () => {
       const stmt = parseUseStatement('use serde::Deserialize;');
-      assert.strictEqual(categorizeImport(stmt, cargoDeps), ImportCategory.External);
+      assert.strictEqual(
+        categorizeImport(stmt, cargoDeps),
+        ImportCategory.External,
+      );
     });
 
     test('categorizes tokio as External', () => {
       const stmt = parseUseStatement('use tokio::sync::mpsc;');
-      assert.strictEqual(categorizeImport(stmt, cargoDeps), ImportCategory.External);
+      assert.strictEqual(
+        categorizeImport(stmt, cargoDeps),
+        ImportCategory.External,
+      );
     });
 
     test('categorizes unknown crate as External', () => {
       const stmt = parseUseStatement('use unknown_crate::module;');
-      assert.strictEqual(categorizeImport(stmt, cargoDeps), ImportCategory.External);
+      assert.strictEqual(
+        categorizeImport(stmt, cargoDeps),
+        ImportCategory.External,
+      );
     });
 
     test('categorizes attributed import as Attributed', () => {
-      const stmt = parseUseStatement('use crate::test_utils;', ['#[cfg(test)]']);
-      assert.strictEqual(categorizeImport(stmt, cargoDeps), ImportCategory.Attributed);
+      const stmt = parseUseStatement('use crate::test_utils;', [
+        '#[cfg(test)]',
+      ]);
+      assert.strictEqual(
+        categorizeImport(stmt, cargoDeps),
+        ImportCategory.Attributed,
+      );
     });
 
     test('categorizes multiple attributes as Attributed', () => {
-      const stmt = parseUseStatement('use std::io;', ['#[cfg(test)]', '#[allow(unused)]']);
-      assert.strictEqual(categorizeImport(stmt, cargoDeps), ImportCategory.Attributed);
+      const stmt = parseUseStatement('use std::io;', [
+        '#[cfg(test)]',
+        '#[allow(unused)]',
+      ]);
+      assert.strictEqual(
+        categorizeImport(stmt, cargoDeps),
+        ImportCategory.Attributed,
+      );
     });
   });
 

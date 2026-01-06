@@ -24,15 +24,23 @@ export function sortUseTree(tree: UseTree): UseTree {
   }
 
   const sortedChildren = [...tree.children]
-    .map(child => sortUseTree(child))
+    .map((child) => sortUseTree(child))
     .sort((a, b) => {
       // self comes first
-      if (a.isSelf && !b.isSelf) { return -1; }
-      if (!a.isSelf && b.isSelf) { return 1; }
+      if (a.isSelf && !b.isSelf) {
+        return -1;
+      }
+      if (!a.isSelf && b.isSelf) {
+        return 1;
+      }
 
       // globs come last
-      if (a.isGlob && !b.isGlob) { return 1; }
-      if (!a.isGlob && b.isGlob) { return -1; }
+      if (a.isGlob && !b.isGlob) {
+        return 1;
+      }
+      if (!a.isGlob && b.isGlob) {
+        return -1;
+      }
 
       // alphabetical order
       return a.segment.name.localeCompare(b.segment.name);

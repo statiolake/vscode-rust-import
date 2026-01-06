@@ -2,7 +2,9 @@ import * as vscode from 'vscode';
 import { parseRustFile, flattenUseTree } from '../parser/useParser';
 import type { UseTree } from '../parser/types';
 
-const OUTPUT_CHANNEL = vscode.window.createOutputChannel('Rust Import Organizer');
+const OUTPUT_CHANNEL = vscode.window.createOutputChannel(
+  'Rust Import Organizer',
+);
 
 function log(message: string): void {
   OUTPUT_CHANNEL.appendLine(`[${new Date().toISOString()}] ${message}`);
@@ -12,7 +14,9 @@ function log(message: string): void {
  * Check if Rust Analyzer extension is installed and active
  */
 export async function isRustAnalyzerAvailable(): Promise<boolean> {
-  const rustAnalyzer = vscode.extensions.getExtension('rust-lang.rust-analyzer');
+  const rustAnalyzer = vscode.extensions.getExtension(
+    'rust-lang.rust-analyzer',
+  );
   if (!rustAnalyzer) {
     log('Rust Analyzer extension not found');
     return false;
@@ -65,7 +69,7 @@ export interface AutoImportResult {
  * Returns edits to be applied later (does not apply them)
  */
 export async function collectAutoImportEdits(
-  document: vscode.TextDocument
+  document: vscode.TextDocument,
 ): Promise<AutoImportResult> {
   log(`\n=== collectAutoImportEdits started ===`);
   log(`Document: ${document.uri.fsPath}`);
@@ -83,11 +87,13 @@ export async function collectAutoImportEdits(
     // Process each diagnostic to collect import suggestions
     for (const diagnostic of diagnostics) {
       // Get code actions for this diagnostic
-      const codeActions = await vscode.commands.executeCommand<vscode.CodeAction[]>(
+      const codeActions = await vscode.commands.executeCommand<
+        vscode.CodeAction[]
+      >(
         'vscode.executeCodeActionProvider',
         document.uri,
         diagnostic.range,
-        vscode.CodeActionKind.QuickFix.value
+        vscode.CodeActionKind.QuickFix.value,
       );
 
       if (!codeActions || codeActions.length === 0) {
@@ -137,8 +143,8 @@ export async function collectAutoImportEdits(
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
         if (
-          line.startsWith('#![') ||      // inner attribute
-          line.startsWith('//!') ||       // module doc comment
+          line.startsWith('#![') || // inner attribute
+          line.startsWith('//!') || // module doc comment
           line.startsWith('extern crate') // extern crate
         ) {
           insertLine = i + 1;
@@ -158,9 +164,12 @@ export async function collectAutoImportEdits(
         }
       }
 
-      const importStatements = Array.from(importsToAdd)
-        .map(path => `use ${path};`)
-        .join('\n') + '\n' + (needsBlankLine ? '\n' : '');
+      const importStatements =
+        Array.from(importsToAdd)
+          .map((path) => `use ${path};`)
+          .join('\n') +
+        '\n' +
+        (needsBlankLine ? '\n' : '');
 
       log(`  Will insert at line ${insertLine}`);
       result.edits.push({
@@ -182,7 +191,7 @@ export async function collectAutoImportEdits(
  * Auto-import unresolved symbols (legacy function that applies edits immediately)
  */
 export async function autoImportUnresolvedSymbols(
-  document: vscode.TextDocument
+  document: vscode.TextDocument,
 ): Promise<number> {
   const result = await collectAutoImportEdits(document);
 
@@ -223,7 +232,10 @@ function extractUnusedSymbol(message: string): string | null {
  * Filter a UseTree to remove unused symbols
  * Returns null if the entire tree should be removed
  */
-function filterUseTree(tree: UseTree, unusedSymbols: Set<string>): UseTree | null {
+function filterUseTree(
+  tree: UseTree,
+  unusedSymbols: Set<string>,
+): UseTree | null {
   // Get the symbol name (last segment or alias)
   const symbolName = tree.segment.alias || tree.segment.name;
 
@@ -288,7 +300,7 @@ function formatUseTree(tree: UseTree): string {
   }
 
   // Multiple children or self - use braces
-  const childrenStr = tree.children.map(c => formatUseTree(c)).join(', ');
+  const childrenStr = tree.children.map((c) => formatUseTree(c)).join(', ');
   return `${segment}::{${childrenStr}}`;
 }
 
@@ -302,7 +314,7 @@ export interface RemoveUnusedResult {
  * Returns edits to be applied later (does not apply them)
  */
 export function collectRemoveUnusedEdits(
-  document: vscode.TextDocument
+  document: vscode.TextDocument,
 ): RemoveUnusedResult {
   log(`\n=== collectRemoveUnusedEdits started ===`);
   log(`Document: ${document.uri.fsPath}`);
@@ -318,8 +330,9 @@ export function collectRemoveUnusedEdits(
 
     for (const d of diagnostics) {
       const isRustSource = d.source === 'rust-analyzer' || d.source === 'rustc';
-      const isUnusedImport = d.message.includes('unused import') ||
-                              d.message.includes('unused_imports');
+      const isUnusedImport =
+        d.message.includes('unused import') ||
+        d.message.includes('unused_imports');
 
       if (isRustSource && isUnusedImport) {
         const symbol = extractUnusedSymbol(d.message);
@@ -348,16 +361,20 @@ export function collectRemoveUnusedEdits(
     for (const stmt of parseResult.imports) {
       // Flatten to get all symbol names in this import
       const paths = flattenUseTree(stmt.tree);
-      const symbolsInImport = paths.map(p => p[p.length - 1]);
+      const symbolsInImport = paths.map((p) => p[p.length - 1]);
 
       // Check which symbols are unused
-      const unusedInThisImport = symbolsInImport.filter(s => unusedSymbols.has(s));
+      const unusedInThisImport = symbolsInImport.filter((s) =>
+        unusedSymbols.has(s),
+      );
 
       if (unusedInThisImport.length === 0) {
         continue; // No unused symbols in this import
       }
 
-      log(`\nProcessing import at lines ${stmt.range.start.line + 1}-${stmt.range.end.line + 1}`);
+      log(
+        `\nProcessing import at lines ${stmt.range.start.line + 1}-${stmt.range.end.line + 1}`,
+      );
       log(`  Symbols: ${symbolsInImport.join(', ')}`);
       log(`  Unused: ${unusedInThisImport.join(', ')}`);
 
@@ -383,14 +400,14 @@ export function collectRemoveUnusedEdits(
           // Use statement is part of a line with other code - delete just the use statement
           range = new vscode.Range(
             new vscode.Position(startLine, startCol),
-            new vscode.Position(endLine, endCol)
+            new vscode.Position(endLine, endCol),
           );
           result.edits.push({ range, text: '' });
         } else {
           // Use statement occupies full lines - delete entire lines including attributes
           range = new vscode.Range(
             new vscode.Position(startLine, 0),
-            new vscode.Position(endLine + 1, 0)
+            new vscode.Position(endLine + 1, 0),
           );
           result.edits.push({ range, text: null });
         }
@@ -398,9 +415,10 @@ export function collectRemoveUnusedEdits(
       } else {
         // Some symbols remain - reformat the import
         const visibility = stmt.visibility ? `${stmt.visibility} ` : '';
-        const attributes = stmt.attributes && stmt.attributes.length > 0
-          ? stmt.attributes.join('\n') + '\n'
-          : '';
+        const attributes =
+          stmt.attributes && stmt.attributes.length > 0
+            ? stmt.attributes.join('\n') + '\n'
+            : '';
         const newImport = `${visibility}use ${formatUseTree(filteredTree)};`;
 
         let range: vscode.Range;
@@ -409,14 +427,14 @@ export function collectRemoveUnusedEdits(
           // Use statement is part of a line - replace just the use statement portion
           range = new vscode.Range(
             new vscode.Position(startLine, startCol),
-            new vscode.Position(endLine, endCol)
+            new vscode.Position(endLine, endCol),
           );
           replacement = newImport;
         } else {
           // Use statement occupies full lines
           range = new vscode.Range(
             new vscode.Position(startLine, 0),
-            new vscode.Position(endLine + 1, 0)
+            new vscode.Position(endLine + 1, 0),
           );
           replacement = `${attributes}${newImport}\n`;
         }
@@ -439,7 +457,7 @@ export function collectRemoveUnusedEdits(
  * Remove unused imports (legacy function that applies edits immediately)
  */
 export async function removeUnusedImports(
-  document: vscode.TextDocument
+  document: vscode.TextDocument,
 ): Promise<number> {
   const result = collectRemoveUnusedEdits(document);
 

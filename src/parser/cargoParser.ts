@@ -6,7 +6,9 @@ import { CargoDependencies } from './types';
 /**
  * Parse Cargo.toml and extract all dependency names
  */
-export function parseCargoDependencies(cargoTomlPath: string): CargoDependencies {
+export function parseCargoDependencies(
+  cargoTomlPath: string,
+): CargoDependencies {
   const result: CargoDependencies = {
     dependencies: new Set<string>(),
     devDependencies: new Set<string>(),
@@ -42,7 +44,7 @@ export function parseCargoDependencies(cargoTomlPath: string): CargoDependencies
  */
 function extractDependencies(
   deps: Record<string, unknown> | undefined,
-  target: Set<string>
+  target: Set<string>,
 ): void {
   if (!deps || typeof deps !== 'object') {
     return;
@@ -92,7 +94,7 @@ export function findCargoToml(rustFilePath: string): string | null {
  */
 export function isDependency(
   crateName: string,
-  cargoDeps: CargoDependencies
+  cargoDeps: CargoDependencies,
 ): boolean {
   const normalized = normalizeCrateName(crateName);
   return (

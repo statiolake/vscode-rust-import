@@ -1,5 +1,9 @@
 import * as assert from 'assert';
-import { formatUseStatement, formatGroupedImports, formatUseTree } from '../../formatter/useFormatter';
+import {
+  formatUseStatement,
+  formatGroupedImports,
+  formatUseTree,
+} from '../../formatter/useFormatter';
 import { parseUseStatement } from '../../parser/useParser';
 import { ImportCategory, GroupedImports } from '../../parser/types';
 
@@ -60,7 +64,9 @@ suite('UseFormatter Test Suite', () => {
     });
 
     test('formats with attributes', () => {
-      const stmt = parseUseStatement('use crate::test_utils;', ['#[cfg(test)]']);
+      const stmt = parseUseStatement('use crate::test_utils;', [
+        '#[cfg(test)]',
+      ]);
       const formatted = formatUseStatement(stmt);
       assert.ok(formatted.startsWith('#[cfg(test)]'));
       assert.ok(formatted.includes('use crate::test_utils;'));
@@ -96,13 +102,15 @@ suite('UseFormatter Test Suite', () => {
 
   suite('formatGroupedImports', () => {
     test('formats single group', () => {
-      const groups: GroupedImports[] = [{
-        category: ImportCategory.Std,
-        imports: [
-          parseUseStatement('use std::io;'),
-          parseUseStatement('use std::fs;'),
-        ],
-      }];
+      const groups: GroupedImports[] = [
+        {
+          category: ImportCategory.Std,
+          imports: [
+            parseUseStatement('use std::io;'),
+            parseUseStatement('use std::fs;'),
+          ],
+        },
+      ];
 
       const formatted = formatGroupedImports(groups);
       assert.ok(formatted.includes('use std::io;'));
@@ -132,12 +140,14 @@ suite('UseFormatter Test Suite', () => {
     });
 
     test('formats attributed imports correctly', () => {
-      const groups: GroupedImports[] = [{
-        category: ImportCategory.Attributed,
-        imports: [
-          parseUseStatement('use crate::test_utils;', ['#[cfg(test)]']),
-        ],
-      }];
+      const groups: GroupedImports[] = [
+        {
+          category: ImportCategory.Attributed,
+          imports: [
+            parseUseStatement('use crate::test_utils;', ['#[cfg(test)]']),
+          ],
+        },
+      ];
 
       const formatted = formatGroupedImports(groups);
       assert.ok(formatted.includes('#[cfg(test)]'));

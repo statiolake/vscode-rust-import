@@ -1,4 +1,11 @@
-import { UseStatement, UseTree, UsePathSegment, ParseResult, Range, Position } from './types';
+import {
+  UseStatement,
+  UseTree,
+  UsePathSegment,
+  ParseResult,
+  Range,
+  Position,
+} from './types';
 
 /**
  * Token types for the lexer
@@ -74,13 +81,13 @@ function tokenize(input: string): Token[] {
       }
 
       const keywordMap: Record<string, TokenType> = {
-        'use': TokenType.Use,
-        'pub': TokenType.Pub,
-        'as': TokenType.As,
-        'self': TokenType.Self,
-        'crate': TokenType.Crate,
-        'super': TokenType.Super,
-        'in': TokenType.In,
+        use: TokenType.Use,
+        pub: TokenType.Pub,
+        as: TokenType.As,
+        self: TokenType.Self,
+        crate: TokenType.Crate,
+        super: TokenType.Super,
+        in: TokenType.In,
       };
 
       if (keywordMap[ident]) {
@@ -240,10 +247,12 @@ class UseTreeParser {
         this.expect(TokenType.CloseBrace);
       } else if (this.match(TokenType.Star)) {
         this.advance();
-        tree.children = [{
-          segment: { name: '*' },
-          isGlob: true,
-        }];
+        tree.children = [
+          {
+            segment: { name: '*' },
+            isGlob: true,
+          },
+        ];
       } else {
         // Single child
         const child = this.parseUseTree();
@@ -338,7 +347,7 @@ function findStartLine(lines: string[], useLineIndex: number): number {
 export function parseUseStatement(
   useStr: string,
   attributes: string[] = [],
-  range: Range = { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } }
+  range: Range = { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } },
 ): UseStatement {
   const tokens = tokenize(useStr);
   const parser = new UseTreeParser(tokens);
@@ -356,7 +365,11 @@ export function parseUseStatement(
  * Find the end of a use statement in a line, tracking brace count
  * Returns the column after the semicolon, or -1 if not found
  */
-function findUseEndInLine(line: string, startCol: number, braceCount: number): { endCol: number; braceCount: number } {
+function findUseEndInLine(
+  line: string,
+  startCol: number,
+  braceCount: number,
+): { endCol: number; braceCount: number } {
   let col = startCol;
   let count = braceCount;
 
@@ -553,7 +566,10 @@ export function getRootPath(tree: UseTree): string {
 /**
  * Flatten a use tree into individual import paths
  */
-export function flattenUseTree(tree: UseTree, prefix: string[] = []): string[][] {
+export function flattenUseTree(
+  tree: UseTree,
+  prefix: string[] = [],
+): string[][] {
   const currentPath = [...prefix, tree.segment.name];
 
   if (tree.isGlob) {

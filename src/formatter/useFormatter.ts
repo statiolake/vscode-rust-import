@@ -114,7 +114,9 @@ export function formatGroupedImports(groups: GroupedImports[]): string {
   const sections: string[] = [];
 
   for (const group of groups) {
-    const formattedImports = group.imports.map(stmt => formatUseStatement(stmt));
+    const formattedImports = group.imports.map((stmt) =>
+      formatUseStatement(stmt),
+    );
     sections.push(formattedImports.join('\n'));
   }
 

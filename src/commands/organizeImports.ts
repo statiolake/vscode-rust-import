@@ -1,17 +1,17 @@
-import * as vscode from "vscode";
-import { formatUseStatementsWithRustfmt } from "../formatter/rustfmt";
-import { formatImportsForFile } from "../formatter/useFormatter";
-import { findCargoToml, parseCargoDependencies } from "../parser/cargoParser";
-import { CargoDependencies, GroupedImports } from "../parser/types";
-import { parseRustFile } from "../parser/useParser";
+import * as vscode from 'vscode';
+import { formatUseStatementsWithRustfmt } from '../formatter/rustfmt';
+import { formatImportsForFile } from '../formatter/useFormatter';
+import { findCargoToml, parseCargoDependencies } from '../parser/cargoParser';
+import { CargoDependencies, GroupedImports } from '../parser/types';
+import { parseRustFile } from '../parser/useParser';
 import {
   collectAutoImportEdits,
   collectRemoveUnusedEdits,
   isRustAnalyzerAvailable,
-} from "../rustAnalyzer/integration";
-import { groupImports } from "../transformer/grouper";
-import { mergeGroupedStatements } from "../transformer/merger";
-import { sortUseStatements } from "../transformer/sorter";
+} from '../rustAnalyzer/integration';
+import { groupImports } from '../transformer/grouper';
+import { mergeGroupedStatements } from '../transformer/merger';
+import { sortUseStatements } from '../transformer/sorter';
 
 /**
  * Organize imports in the current Rust file
@@ -20,12 +20,12 @@ export async function organizeImports(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
 
   if (!editor) {
-    vscode.window.showWarningMessage("No active editor");
+    vscode.window.showWarningMessage('No active editor');
     return;
   }
 
-  if (editor.document.languageId !== "rust") {
-    vscode.window.showWarningMessage("This command only works with Rust files");
+  if (editor.document.languageId !== 'rust') {
+    vscode.window.showWarningMessage('This command only works with Rust files');
     return;
   }
 
@@ -36,15 +36,15 @@ export async function organizeImports(): Promise<void> {
  * Get extension configuration
  */
 function getConfig() {
-  const config = vscode.workspace.getConfiguration("rustImportOrganizer");
+  const config = vscode.workspace.getConfiguration('rustImportOrganizer');
   return {
-    enableAutoImport: config.get<boolean>("enableAutoImport", true),
-    enableGroupImports: config.get<boolean>("enableGroupImports", true),
+    enableAutoImport: config.get<boolean>('enableAutoImport', true),
+    enableGroupImports: config.get<boolean>('enableGroupImports', true),
     enableRemoveUnusedImports: config.get<boolean>(
-      "enableRemoveUnusedImports",
-      true
+      'enableRemoveUnusedImports',
+      true,
     ),
-    useRustfmt: config.get<boolean>("useRustfmt", true),
+    useRustfmt: config.get<boolean>('useRustfmt', true),
   };
 }
 
@@ -52,7 +52,7 @@ function getConfig() {
  * Core function to organize imports in a document
  */
 export async function organizeImportsInDocument(
-  document: vscode.TextDocument
+  document: vscode.TextDocument,
 ): Promise<boolean> {
   const editor = vscode.window.activeTextEditor;
   if (!editor || editor.document !== document) {
@@ -116,7 +116,7 @@ export async function organizeImportsInDocument(
  * Group and sort imports in a document
  */
 async function groupAndSortImports(
-  document: vscode.TextDocument
+  document: vscode.TextDocument,
 ): Promise<boolean> {
   const editor = vscode.window.activeTextEditor;
   if (!editor || editor.document !== document) {
@@ -150,7 +150,7 @@ async function groupAndSortImports(
   const config = getConfig();
   formattedImports = await formatUseStatementsWithRustfmt(
     formattedImports,
-    config.useRustfmt
+    config.useRustfmt,
   );
 
   // Use the importsRange from parse result
@@ -169,19 +169,19 @@ async function groupAndSortImports(
   // Apply the edit
   const range = new vscode.Range(
     new vscode.Position(startLine, startCol),
-    new vscode.Position(endLine, endCol)
+    new vscode.Position(endLine, endCol),
   );
 
   // Build formatted text with proper spacing
   let formattedText = formattedImports.trimEnd();
   if (hasCodeBeforeImports) {
-    formattedText = "\n\n" + formattedText;
+    formattedText = '\n\n' + formattedText;
   }
   if (hasCodeAfterImports) {
-    formattedText = formattedText + "\n\n";
+    formattedText = formattedText + '\n\n';
   } else if (needsBlankLineAfter) {
     // Add blank line when there's code on the next line but no blank line
-    formattedText = formattedText + "\n";
+    formattedText = formattedText + '\n';
   }
 
   await editor.edit((editBuilder) => {
@@ -195,7 +195,7 @@ async function groupAndSortImports(
  * Get Cargo.toml dependencies for the given file path
  */
 async function getCargoDependencies(
-  filePath: string
+  filePath: string,
 ): Promise<CargoDependencies> {
   const cargoPath = findCargoToml(filePath);
 

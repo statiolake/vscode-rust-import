@@ -16,7 +16,14 @@ suite('Extension Test Suite', () => {
 });
 
 suite('Integration Test Suite', () => {
-  const fixturesPath = path.join(__dirname, '..', '..', 'src', 'test', 'fixtures');
+  const fixturesPath = path.join(
+    __dirname,
+    '..',
+    '..',
+    'src',
+    'test',
+    'fixtures',
+  );
   const cargoTomlPath = path.join(fixturesPath, 'Cargo.toml');
 
   test('full pipeline: parse -> group -> merge -> sort -> format', () => {
@@ -44,7 +51,7 @@ fn main() {}`;
     assert.ok(groups.length >= 3); // Std, External, Internal, Attributed
 
     // Merge and sort each group
-    const processedGroups: GroupedImports[] = groups.map(group => ({
+    const processedGroups: GroupedImports[] = groups.map((group) => ({
       category: group.category,
       imports: sortUseStatements(mergeGroupedStatements(group.imports)),
     }));
@@ -54,20 +61,41 @@ fn main() {}`;
 
     // Verify output structure
     assert.ok(formatted.includes('use std::'), 'should include std imports');
-    assert.ok(formatted.includes('use serde::'), 'should include serde imports');
-    assert.ok(formatted.includes('use tokio::'), 'should include tokio imports');
-    assert.ok(formatted.includes('use crate::'), 'should include crate imports');
-    assert.ok(formatted.includes('use super::'), 'should include super imports');
-    assert.ok(formatted.includes('#[cfg(test)]'), 'should include cfg(test) attribute');
+    assert.ok(
+      formatted.includes('use serde::'),
+      'should include serde imports',
+    );
+    assert.ok(
+      formatted.includes('use tokio::'),
+      'should include tokio imports',
+    );
+    assert.ok(
+      formatted.includes('use crate::'),
+      'should include crate imports',
+    );
+    assert.ok(
+      formatted.includes('use super::'),
+      'should include super imports',
+    );
+    assert.ok(
+      formatted.includes('#[cfg(test)]'),
+      'should include cfg(test) attribute',
+    );
 
     // Verify std imports are merged
     const stdSection = formatted.split('\n\n')[0];
-    assert.ok(stdSection.includes('collections::HashMap'), 'std should include HashMap');
+    assert.ok(
+      stdSection.includes('collections::HashMap'),
+      'std should include HashMap',
+    );
     assert.ok(stdSection.includes('io::'), 'std should include io');
 
     // Verify group separation
     const groupCount = (formatted.match(/\n\n/g) || []).length;
-    assert.ok(groupCount >= 2, 'should have multiple groups separated by blank lines');
+    assert.ok(
+      groupCount >= 2,
+      'should have multiple groups separated by blank lines',
+    );
   });
 
   test('handles file with single import', () => {
@@ -102,7 +130,7 @@ fn main() {}`;
     const parseResult = parseRustFile(input);
     const cargoDeps = parseCargoDependencies(cargoTomlPath);
     const groups = groupImports(parseResult.imports, cargoDeps);
-    const processedGroups: GroupedImports[] = groups.map(group => ({
+    const processedGroups: GroupedImports[] = groups.map((group) => ({
       category: group.category,
       imports: sortUseStatements(mergeGroupedStatements(group.imports)),
     }));

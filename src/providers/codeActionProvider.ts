@@ -15,7 +15,7 @@ export class RustImportCodeActionProvider implements vscode.CodeActionProvider {
     document: vscode.TextDocument,
     _range: vscode.Range | vscode.Selection,
     _context: vscode.CodeActionContext,
-    _token: vscode.CancellationToken
+    _token: vscode.CancellationToken,
   ): vscode.CodeAction[] {
     if (document.languageId !== 'rust') {
       return [];
@@ -26,7 +26,7 @@ export class RustImportCodeActionProvider implements vscode.CodeActionProvider {
     // Organize Imports action (source.organizeImports)
     const organizeAction = new vscode.CodeAction(
       'Rust Import Organizer: Organize Imports',
-      vscode.CodeActionKind.SourceOrganizeImports
+      vscode.CodeActionKind.SourceOrganizeImports,
     );
     organizeAction.command = {
       command: 'rust-import.organizeImports',
@@ -37,7 +37,7 @@ export class RustImportCodeActionProvider implements vscode.CodeActionProvider {
     // Auto Import action (source.autoImport)
     const autoImportAction = new vscode.CodeAction(
       'Rust Import Organizer: Auto Import',
-      vscode.CodeActionKind.Source.append('autoImport')
+      vscode.CodeActionKind.Source.append('autoImport'),
     );
     autoImportAction.command = {
       command: 'rust-import.autoImport',

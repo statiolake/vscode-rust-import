@@ -1,5 +1,10 @@
 import * as assert from 'assert';
-import { mergeUseStatements, mergeGroupedStatements, needsBraces, countImports } from '../../transformer/merger';
+import {
+  mergeUseStatements,
+  mergeGroupedStatements,
+  needsBraces,
+  countImports,
+} from '../../transformer/merger';
 import { parseUseStatement } from '../../parser/useParser';
 
 suite('Merger Test Suite', () => {
@@ -31,8 +36,10 @@ suite('Merger Test Suite', () => {
       assert.strictEqual(ioNode?.children?.length, 2);
 
       // Should have self and Read
-      const selfChild = ioNode?.children?.find(c => c.isSelf);
-      const readChild = ioNode?.children?.find(c => c.segment.name === 'Read');
+      const selfChild = ioNode?.children?.find((c) => c.isSelf);
+      const readChild = ioNode?.children?.find(
+        (c) => c.segment.name === 'Read',
+      );
       assert.ok(selfChild, 'should have self');
       assert.ok(readChild, 'should have Read');
     });
@@ -46,7 +53,9 @@ suite('Merger Test Suite', () => {
       const merged = mergeUseStatements(statements);
 
       assert.strictEqual(merged.length, 1);
-      const resultChild = merged[0].tree.children?.find(c => c.segment.name === 'result');
+      const resultChild = merged[0].tree.children?.find(
+        (c) => c.segment.name === 'result',
+      );
       assert.strictEqual(resultChild?.children?.[0].segment.alias, 'StdResult');
     });
 
@@ -62,7 +71,9 @@ suite('Merger Test Suite', () => {
       assert.strictEqual(merged.length, 1);
       assert.strictEqual(merged[0].tree.children?.length, 2); // fs and io
 
-      const ioNode = merged[0].tree.children?.find(c => c.segment.name === 'io');
+      const ioNode = merged[0].tree.children?.find(
+        (c) => c.segment.name === 'io',
+      );
       assert.strictEqual(ioNode?.children?.length, 2); // Read and Write
     });
 
@@ -75,8 +86,10 @@ suite('Merger Test Suite', () => {
       const merged = mergeUseStatements(statements);
 
       assert.strictEqual(merged.length, 1);
-      const ioNode = merged[0].tree.children?.find(c => c.segment.name === 'io');
-      assert.ok(ioNode?.isGlob || ioNode?.children?.some(c => c.isGlob));
+      const ioNode = merged[0].tree.children?.find(
+        (c) => c.segment.name === 'io',
+      );
+      assert.ok(ioNode?.isGlob || ioNode?.children?.some((c) => c.isGlob));
     });
 
     test('does not merge different roots', () => {
@@ -91,9 +104,7 @@ suite('Merger Test Suite', () => {
     });
 
     test('handles single import', () => {
-      const statements = [
-        parseUseStatement('use std::io;'),
-      ];
+      const statements = [parseUseStatement('use std::io;')];
 
       const merged = mergeUseStatements(statements);
 
@@ -118,10 +129,14 @@ suite('Merger Test Suite', () => {
 
       assert.strictEqual(merged.length, 1);
 
-      const collectionsNode = merged[0].tree.children?.find(c => c.segment.name === 'collections');
+      const collectionsNode = merged[0].tree.children?.find(
+        (c) => c.segment.name === 'collections',
+      );
       assert.strictEqual(collectionsNode?.children?.length, 2);
 
-      const ioNode = merged[0].tree.children?.find(c => c.segment.name === 'io');
+      const ioNode = merged[0].tree.children?.find(
+        (c) => c.segment.name === 'io',
+      );
       assert.strictEqual(ioNode?.children?.length, 2);
     });
   });
