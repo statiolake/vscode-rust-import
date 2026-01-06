@@ -2,7 +2,7 @@
   "name": "vscode-rust-import",
   "displayName": "Rust Import Organizer",
   "description": "Organize Rust imports by sorting, grouping, and merging use statements",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "statiolake",
   "repository": {
     "type": "git",
@@ -57,6 +57,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable sorting and grouping of imports when organizing imports"
+        },
+        "rustImportOrganizer.useRustfmt": {
+          "type": "boolean",
+          "default": true,
+          "description": "Format generated use statements with rustfmt to match project formatting style"
         }
       }
     }

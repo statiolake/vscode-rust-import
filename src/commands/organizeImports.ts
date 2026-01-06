@@ -7,6 +7,7 @@ import { sortUseStatements } from '../transformer/sorter';
 import { formatImportsForFile } from '../formatter/useFormatter';
 import { CargoDependencies, GroupedImports } from '../parser/types';
 import { isRustAnalyzerAvailable, autoImportUnresolvedSymbols } from '../rustAnalyzer/integration';
+import { formatUseStatementsWithRustfmt } from '../formatter/rustfmt';
 
 /**
  * Organize imports in the current Rust file
@@ -35,6 +36,7 @@ function getConfig() {
   return {
     enableAutoImport: config.get<boolean>('enableAutoImport', true),
     enableGroupImports: config.get<boolean>('enableGroupImports', true),
+    useRustfmt: config.get<boolean>('useRustfmt', true),
   };
 }
 
@@ -102,7 +104,11 @@ async function groupAndSortImports(document: vscode.TextDocument): Promise<boole
   }));
 
   // Format the imports
-  const formattedImports = formatImportsForFile(processedGroups);
+  let formattedImports = formatImportsForFile(processedGroups);
+
+  // Apply rustfmt if enabled
+  const config = getConfig();
+  formattedImports = await formatUseStatementsWithRustfmt(formattedImports, config.useRustfmt);
 
   // Calculate the range to replace
   const startLine = parseResult.importStartLine;
