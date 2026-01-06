@@ -5,9 +5,11 @@ import { findCargoToml, parseCargoDependencies } from '../parser/cargoParser';
 import { CargoDependencies, GroupedImports } from '../parser/types';
 import { parseRustFile } from '../parser/useParser';
 import {
-  collectAutoImportEdits,
-  collectRemoveUnusedEdits,
   isRustAnalyzerAvailable,
+  getUnusedSymbols,
+  getAutoImportPaths,
+  filterUnusedImports,
+  createUseStatementsFromPaths,
 } from '../rustAnalyzer/integration';
 import { groupImports } from '../transformer/grouper';
 import { mergeGroupedStatements } from '../transformer/merger';
@@ -50,6 +52,7 @@ function getConfig() {
 
 /**
  * Core function to organize imports in a document
+ * All changes are applied in a single edit to prevent flickering
  */
 export async function organizeImportsInDocument(
   document: vscode.TextDocument,
@@ -60,117 +63,95 @@ export async function organizeImportsInDocument(
   }
 
   const config = getConfig();
+  const content = document.getText();
+  const lines = content.split('\n');
 
-  // Collect all edits first, then apply them together
+  // Step 1: Parse existing imports
+  const parseResult = parseRustFile(content);
+  let imports = parseResult.imports;
+
+  // Step 2: Get unused symbols and auto-import paths from diagnostics
   const raAvailable = await isRustAnalyzerAvailable();
-
-  // Step 1: Collect remove unused and auto-import edits (both depend on diagnostics)
-  const combinedEdit = new vscode.WorkspaceEdit();
-  let editCount = 0;
+  let autoImportPaths: string[] = [];
 
   if (raAvailable) {
-    // Collect remove unused edits
+    // Filter out unused imports
     if (config.enableRemoveUnusedImports) {
-      const removeResult = collectRemoveUnusedEdits(document);
-      for (const e of removeResult.edits) {
-        if (e.text === null) {
-          combinedEdit.delete(document.uri, e.range);
-        } else {
-          combinedEdit.replace(document.uri, e.range, e.text);
-        }
-      }
-      editCount += removeResult.count;
+      const unusedSymbols = getUnusedSymbols(document);
+      imports = filterUnusedImports(imports, unusedSymbols);
     }
 
-    // Collect auto-import edits
+    // Get paths to auto-import
     if (config.enableAutoImport) {
-      const autoImportResult = await collectAutoImportEdits(document);
-      for (const e of autoImportResult.edits) {
-        combinedEdit.insert(document.uri, e.position, e.text);
-      }
-      editCount += autoImportResult.count;
+      autoImportPaths = await getAutoImportPaths(document);
     }
   }
 
-  // Apply combined edits
-  let didChange = false;
-  if (editCount > 0) {
-    const applied = await vscode.workspace.applyEdit(combinedEdit);
-    if (applied) {
-      didChange = true;
-    }
-  }
+  // Step 3: Create UseStatements from auto-import paths and combine with existing
+  const newImports = createUseStatementsFromPaths(autoImportPaths);
+  const allImports = [...imports, ...newImports];
 
-  // Step 2: Group and sort imports (after remove/add edits are applied)
-  if (config.enableGroupImports) {
-    const grouped = await groupAndSortImports(document);
-    if (grouped) {
-      didChange = true;
-    }
-  }
-
-  return didChange;
-}
-
-/**
- * Group and sort imports in a document
- */
-async function groupAndSortImports(
-  document: vscode.TextDocument,
-): Promise<boolean> {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor || editor.document !== document) {
+  // If no imports after filtering and no new imports, nothing to do
+  if (allImports.length === 0 && parseResult.imports.length === 0) {
     return false;
   }
 
-  const content = document.getText();
-
-  // Parse the file to extract imports
-  const parseResult = parseRustFile(content);
-
-  if (parseResult.imports.length === 0 || !parseResult.importsRange) {
-    return false;
-  }
-
-  // Get Cargo.toml dependencies
+  // Step 4: Group, merge, and sort all imports
   const cargoDeps = await getCargoDependencies(document.uri.fsPath);
 
-  // Process imports: group -> merge -> sort
-  const groups = groupImports(parseResult.imports, cargoDeps);
-
-  const processedGroups: GroupedImports[] = groups.map((group) => ({
-    category: group.category,
-    imports: sortUseStatements(mergeGroupedStatements(group.imports)),
-  }));
-
-  // Format the imports
-  let formattedImports = formatImportsForFile(processedGroups);
+  let formattedImports: string;
+  if (config.enableGroupImports && allImports.length > 0) {
+    const groups = groupImports(allImports, cargoDeps);
+    const processedGroups: GroupedImports[] = groups.map((group) => ({
+      category: group.category,
+      imports: sortUseStatements(mergeGroupedStatements(group.imports)),
+    }));
+    formattedImports = formatImportsForFile(processedGroups);
+  } else if (allImports.length > 0) {
+    // Just format imports without grouping
+    const groups = groupImports(allImports, cargoDeps);
+    formattedImports = formatImportsForFile(groups);
+  } else {
+    formattedImports = '';
+  }
 
   // Apply rustfmt if enabled
-  const config = getConfig();
-  formattedImports = await formatUseStatementsWithRustfmt(
-    formattedImports,
-    config.useRustfmt,
-  );
+  if (formattedImports) {
+    formattedImports = await formatUseStatementsWithRustfmt(
+      formattedImports,
+      config.useRustfmt,
+    );
+  }
 
-  // Use the importsRange from parse result
-  const importsRange = parseResult.importsRange;
-  const startLine = importsRange.start.line;
-  const endLine = importsRange.end.line;
-  const startCol = importsRange.start.column;
-  const endCol = importsRange.end.column;
+  // Step 5: Calculate the range to replace and apply single edit
+  let startLine: number;
+  let startCol: number;
+  let endLine: number;
+  let endCol: number;
 
-  // Determine if there's code before/after the imports on the same line
+  if (parseResult.importsRange) {
+    // There are existing imports - replace them
+    startLine = parseResult.importsRange.start.line;
+    startCol = parseResult.importsRange.start.column;
+    endLine = parseResult.importsRange.end.line;
+    endCol = parseResult.importsRange.end.column;
+  } else if (allImports.length > 0) {
+    // No existing imports but we have new ones - find insertion point
+    const insertLine = findImportInsertionLine(lines);
+    startLine = insertLine;
+    startCol = 0;
+    endLine = insertLine;
+    endCol = 0;
+  } else {
+    // No imports at all
+    return false;
+  }
+
+  // Determine spacing needs
   const hasCodeBeforeImports = startCol > 0;
-  const hasCodeAfterImports = endCol < document.lineAt(endLine).text.length;
+  const hasCodeAfterImports = endCol < lines[endLine].length;
   const needsBlankLineAfter =
     !parseResult.hasBlankLineAfterImports && !hasCodeAfterImports;
-
-  // Apply the edit
-  const range = new vscode.Range(
-    new vscode.Position(startLine, startCol),
-    new vscode.Position(endLine, endCol),
-  );
 
   // Build formatted text with proper spacing
   let formattedText = formattedImports.trimEnd();
@@ -179,9 +160,28 @@ async function groupAndSortImports(
   }
   if (hasCodeAfterImports) {
     formattedText = formattedText + '\n\n';
-  } else if (needsBlankLineAfter) {
-    // Add blank line when there's code on the next line but no blank line
+  } else if (needsBlankLineAfter && formattedText) {
     formattedText = formattedText + '\n';
+  }
+
+  // If no existing imports but adding new ones, ensure proper formatting
+  if (!parseResult.importsRange && allImports.length > 0) {
+    // Check if we need a blank line after
+    if (startLine < lines.length && lines[startLine].trim() !== '') {
+      formattedText = formattedText + '\n';
+    }
+  }
+
+  // Apply the single edit
+  const range = new vscode.Range(
+    new vscode.Position(startLine, startCol),
+    new vscode.Position(endLine, endCol),
+  );
+
+  const currentText = document.getText(range);
+  if (currentText === formattedText) {
+    // No changes needed
+    return false;
   }
 
   await editor.edit((editBuilder) => {
@@ -189,6 +189,38 @@ async function groupAndSortImports(
   });
 
   return true;
+}
+
+/**
+ * Find the line to insert imports when there are no existing imports
+ */
+function findImportInsertionLine(lines: string[]): number {
+  let insertLine = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (
+      line.startsWith('#![') || // inner attribute
+      line.startsWith('//!') || // module doc comment
+      line.startsWith('extern crate') // extern crate
+    ) {
+      insertLine = i + 1;
+    } else if (line === '' || line.startsWith('//')) {
+      // Skip empty lines and regular comments at the top
+      if (insertLine === i) {
+        insertLine = i + 1;
+      }
+    } else if (line.startsWith('mod ')) {
+      // Found mod, insert before it
+      insertLine = i;
+      break;
+    } else if (line.length > 0 && !line.startsWith('#[')) {
+      // Found other code
+      break;
+    }
+  }
+
+  return insertLine;
 }
 
 /**

@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
-import { parseRustFile, flattenUseTree } from '../parser/useParser';
-import type { UseTree } from '../parser/types';
+import {
+  parseRustFile,
+  flattenUseTree,
+  parseUseStatement,
+} from '../parser/useParser';
+import type { UseStatement, UseTree } from '../parser/types';
 
 const OUTPUT_CHANNEL = vscode.window.createOutputChannel(
   'Rust Import Organizer',
@@ -211,6 +215,147 @@ export async function autoImportUnresolvedSymbols(
   }
 
   return 0;
+}
+
+/**
+ * Get auto-import paths from diagnostics (without generating edits)
+ * Returns paths to import that have exactly one suggestion
+ */
+export async function getAutoImportPaths(
+  document: vscode.TextDocument,
+): Promise<string[]> {
+  log(`\n=== getAutoImportPaths started ===`);
+
+  // Collect all import suggestions: Map from symbol name to set of possible paths
+  const symbolToImports = new Map<string, Set<string>>();
+
+  try {
+    const diagnostics = vscode.languages.getDiagnostics(document.uri);
+
+    for (const diagnostic of diagnostics) {
+      const codeActions = await vscode.commands.executeCommand<
+        vscode.CodeAction[]
+      >(
+        'vscode.executeCodeActionProvider',
+        document.uri,
+        diagnostic.range,
+        vscode.CodeActionKind.QuickFix.value,
+      );
+
+      if (!codeActions || codeActions.length === 0) {
+        continue;
+      }
+
+      for (const action of codeActions) {
+        const path = extractImportPath(action.title);
+        if (path) {
+          const symbolName = path.split('::').pop()!;
+          if (!symbolToImports.has(symbolName)) {
+            symbolToImports.set(symbolName, new Set());
+          }
+          symbolToImports.get(symbolName)!.add(path);
+        }
+      }
+    }
+
+    // Return only unambiguous imports
+    const paths: string[] = [];
+    for (const [symbolName, pathSet] of symbolToImports) {
+      if (pathSet.size === 1) {
+        const path = Array.from(pathSet)[0];
+        log(`  Will import: ${path} (unambiguous)`);
+        paths.push(path);
+      } else {
+        log(`  Skipping ${symbolName}: ${pathSet.size} options (ambiguous)`);
+      }
+    }
+
+    return paths;
+  } catch (error) {
+    log(`Failed to get auto-import paths: ${error}`);
+    return [];
+  }
+}
+
+/**
+ * Get unused symbols from diagnostics (without generating edits)
+ */
+export function getUnusedSymbols(document: vscode.TextDocument): Set<string> {
+  log(`\n=== getUnusedSymbols started ===`);
+
+  const unusedSymbols = new Set<string>();
+
+  try {
+    const diagnostics = vscode.languages.getDiagnostics(document.uri);
+
+    for (const d of diagnostics) {
+      const isRustSource = d.source === 'rust-analyzer' || d.source === 'rustc';
+      const isUnusedImport =
+        d.message.includes('unused import') ||
+        d.message.includes('unused_imports');
+
+      if (isRustSource && isUnusedImport) {
+        const symbol = extractUnusedSymbol(d.message);
+        if (symbol) {
+          log(`  Found unused symbol: ${symbol}`);
+          unusedSymbols.add(symbol);
+        }
+      }
+    }
+  } catch (error) {
+    log(`Failed to get unused symbols: ${error}`);
+  }
+
+  log(`Found ${unusedSymbols.size} unused symbols`);
+  return unusedSymbols;
+}
+
+/**
+ * Filter imports to remove unused symbols
+ * Returns a new array with filtered imports (imports with all unused symbols are removed)
+ */
+export function filterUnusedImports(
+  imports: UseStatement[],
+  unusedSymbols: Set<string>,
+): UseStatement[] {
+  if (unusedSymbols.size === 0) {
+    return imports;
+  }
+
+  const filtered: UseStatement[] = [];
+
+  for (const stmt of imports) {
+    const filteredTree = filterUseTree(stmt.tree, unusedSymbols);
+    if (filteredTree) {
+      filtered.push({
+        ...stmt,
+        tree: filteredTree,
+      });
+    }
+    // If filteredTree is null, the entire import was unused - skip it
+  }
+
+  return filtered;
+}
+
+/**
+ * Create UseStatements from import paths
+ * e.g., "std::io::Read" -> UseStatement
+ */
+export function createUseStatementsFromPaths(paths: string[]): UseStatement[] {
+  const statements: UseStatement[] = [];
+
+  for (const path of paths) {
+    try {
+      const useStr = `use ${path};`;
+      const stmt = parseUseStatement(useStr);
+      statements.push(stmt);
+    } catch (e) {
+      log(`Failed to create UseStatement from path: ${path}`);
+    }
+  }
+
+  return statements;
 }
 
 /**
