@@ -278,6 +278,17 @@ export async function getAutoImportPaths(
 }
 
 /**
+ * Check if the document has any error-level diagnostics
+ * When errors exist, unused import detection may be unreliable due to incomplete analysis
+ */
+export function hasErrorDiagnostics(document: vscode.TextDocument): boolean {
+  const diagnostics = vscode.languages.getDiagnostics(document.uri);
+  return diagnostics.some(
+    (d) => d.severity === vscode.DiagnosticSeverity.Error,
+  );
+}
+
+/**
  * Get unused symbols from diagnostics (without generating edits)
  */
 export function getUnusedSymbols(document: vscode.TextDocument): Set<string> {

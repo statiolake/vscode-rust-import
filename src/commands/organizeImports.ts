@@ -6,6 +6,7 @@ import { CargoDependencies, GroupedImports } from '../parser/types';
 import { parseRustFile } from '../parser/useParser';
 import {
   isRustAnalyzerAvailable,
+  hasErrorDiagnostics,
   getUnusedSymbols,
   getAutoImportPaths,
   filterUnusedImports,
@@ -75,8 +76,8 @@ export async function organizeImportsInDocument(
   let autoImportPaths: string[] = [];
 
   if (raAvailable) {
-    // Filter out unused imports
-    if (config.enableRemoveUnusedImports) {
+    // Filter out unused imports (skip if there are error diagnostics to avoid false positives)
+    if (config.enableRemoveUnusedImports && !hasErrorDiagnostics(document)) {
       const unusedSymbols = getUnusedSymbols(document);
       imports = filterUnusedImports(imports, unusedSymbols);
     }
