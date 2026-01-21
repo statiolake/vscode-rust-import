@@ -469,12 +469,15 @@ export function createUseStatementsFromPaths(
 /**
  * Extract unused symbol name from diagnostic message
  * e.g., "unused import: `Duration`" -> "Duration"
+ * e.g., "unused import: `Read as _`" -> "Read"
  */
 function extractUnusedSymbol(message: string): string | null {
   // Match patterns like "unused import: `Symbol`" or "unused import: `path::Symbol`"
   const match = message.match(/unused import:?\s*`([^`]+)`/i);
   if (match) {
-    const path = match[1];
+    let path = match[1];
+    // Remove "as ..." suffix (e.g., "Read as _" -> "Read")
+    path = path.replace(/\s+as\s+\S+$/, '');
     // Return just the symbol name (last segment)
     return path.split('::').pop() || null;
   }
