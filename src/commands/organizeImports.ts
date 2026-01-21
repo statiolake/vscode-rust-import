@@ -201,6 +201,13 @@ export async function organizeImportsInDocument(
     editBuilder.replace(range, formattedText);
   });
 
+  // Clear rust-analyzer diagnostics so they get recalculated
+  try {
+    await vscode.commands.executeCommand('rust-analyzer.clearFlycheck');
+  } catch {
+    // Ignore if rust-analyzer is not available
+  }
+
   return true;
 }
 
