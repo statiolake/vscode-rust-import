@@ -218,22 +218,59 @@ export async function autoImportUnresolvedSymbols(
   return 0;
 }
 
+export interface AutoImportPath {
+  path: string;
+  isTrait: boolean;
+}
+
+/**
+ * Check if a diagnostic's relatedInformation indicates a trait import
+ * Looks for patterns like: "trait `Write` which provides..."
+ */
+function isTraitFromDiagnostic(diagnostic: vscode.Diagnostic): Set<string> {
+  const traitNames = new Set<string>();
+
+  if (!diagnostic.relatedInformation) {
+    return traitNames;
+  }
+
+  for (const info of diagnostic.relatedInformation) {
+    // Match "trait `TraitName` which provides" pattern
+    const match = info.message.match(/trait `(\w+)` which provides/);
+    if (match) {
+      traitNames.add(match[1]);
+    }
+  }
+
+  return traitNames;
+}
+
 /**
  * Get auto-import paths from diagnostics (without generating edits)
  * Returns paths to import that have exactly one suggestion
+ * Also detects if the import is for a trait (should use `as _`)
  */
 export async function getAutoImportPaths(
   document: vscode.TextDocument,
-): Promise<string[]> {
+): Promise<AutoImportPath[]> {
   log(`\n=== getAutoImportPaths started ===`);
 
   // Collect all import suggestions: Map from symbol name to set of possible paths
   const symbolToImports = new Map<string, Set<string>>();
+  // Track which symbols are traits
+  const traitSymbols = new Set<string>();
 
   try {
     const diagnostics = vscode.languages.getDiagnostics(document.uri);
 
     for (const diagnostic of diagnostics) {
+      // Check if this diagnostic indicates trait imports
+      const traitsInDiagnostic = isTraitFromDiagnostic(diagnostic);
+      for (const traitName of traitsInDiagnostic) {
+        traitSymbols.add(traitName);
+        log(`  Detected trait: ${traitName}`);
+      }
+
       const codeActions = await vscode.commands.executeCommand<
         vscode.CodeAction[]
       >(
@@ -260,12 +297,13 @@ export async function getAutoImportPaths(
     }
 
     // Return only unambiguous imports
-    const paths: string[] = [];
+    const paths: AutoImportPath[] = [];
     for (const [symbolName, pathSet] of symbolToImports) {
       if (pathSet.size === 1) {
         const path = Array.from(pathSet)[0];
-        log(`  Will import: ${path} (unambiguous)`);
-        paths.push(path);
+        const isTrait = traitSymbols.has(symbolName);
+        log(`  Will import: ${path} (unambiguous, trait: ${isTrait})`);
+        paths.push({ path, isTrait });
       } else {
         log(`  Skipping ${symbolName}: ${pathSet.size} options (ambiguous)`);
       }
@@ -407,15 +445,19 @@ export function filterUnusedImports(
 /**
  * Create UseStatements from import paths
  * e.g., "std::io::Read" -> UseStatement
+ * For traits, adds `as _` to avoid bringing the name into scope
  */
-export function createUseStatementsFromPaths(paths: string[]): UseStatement[] {
+export function createUseStatementsFromPaths(
+  paths: AutoImportPath[],
+): UseStatement[] {
   const statements: UseStatement[] = [];
 
-  for (const path of paths) {
+  for (const { path, isTrait } of paths) {
     try {
-      const useStr = `use ${path};`;
+      const useStr = isTrait ? `use ${path} as _;` : `use ${path};`;
       const stmt = parseUseStatement(useStr);
       statements.push(stmt);
+      log(`  Created: ${useStr}`);
     } catch (e) {
       log(`Failed to create UseStatement from path: ${path}`);
     }

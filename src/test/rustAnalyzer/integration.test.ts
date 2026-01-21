@@ -1,5 +1,8 @@
 import * as assert from 'assert';
-import { filterUnusedImports } from '../../rustAnalyzer/integration';
+import {
+  filterUnusedImports,
+  createUseStatementsFromPaths,
+} from '../../rustAnalyzer/integration';
 import { parseUseStatement } from '../../parser/useParser';
 import { formatUseStatement } from '../../formatter/useFormatter';
 
@@ -131,6 +134,57 @@ suite('Integration Test Suite', () => {
       // Statement 2: only fmt::Write as _ -> Write is unused, it's underscore -> remove
 
       assert.strictEqual(filtered.length, 0);
+    });
+  });
+
+  suite('createUseStatementsFromPaths', () => {
+    test('adds as _ for traits', () => {
+      // Traits like Read, Write, Display should get `as _`
+      const paths = [{ path: 'std::io::Write', isTrait: true }];
+      const statements = createUseStatementsFromPaths(paths);
+
+      assert.strictEqual(statements.length, 1);
+      const formatted = formatUseStatement(statements[0]);
+      assert.strictEqual(formatted, 'use std::io::Write as _;');
+    });
+
+    test('does not add as _ for non-traits', () => {
+      // Structs and other types should not get `as _`
+      const paths = [{ path: 'std::time::Duration', isTrait: false }];
+      const statements = createUseStatementsFromPaths(paths);
+
+      assert.strictEqual(statements.length, 1);
+      const formatted = formatUseStatement(statements[0]);
+      assert.strictEqual(formatted, 'use std::time::Duration;');
+    });
+
+    test('does not add as _ for functions', () => {
+      // Functions should not get `as _`
+      const paths = [{ path: 'std::fs::read_to_string', isTrait: false }];
+      const statements = createUseStatementsFromPaths(paths);
+
+      assert.strictEqual(statements.length, 1);
+      const formatted = formatUseStatement(statements[0]);
+      assert.strictEqual(formatted, 'use std::fs::read_to_string;');
+    });
+
+    test('handles multiple paths with mixed trait/non-trait', () => {
+      const paths = [
+        { path: 'std::io::Write', isTrait: true },
+        { path: 'std::fs::read_to_string', isTrait: false },
+        { path: 'std::time::Duration', isTrait: false },
+      ];
+      const statements = createUseStatementsFromPaths(paths);
+
+      assert.strictEqual(statements.length, 3);
+
+      const formatted0 = formatUseStatement(statements[0]);
+      const formatted1 = formatUseStatement(statements[1]);
+      const formatted2 = formatUseStatement(statements[2]);
+
+      assert.strictEqual(formatted0, 'use std::io::Write as _;');
+      assert.strictEqual(formatted1, 'use std::fs::read_to_string;');
+      assert.strictEqual(formatted2, 'use std::time::Duration;');
     });
   });
 });

@@ -11,6 +11,7 @@ import {
   getAutoImportPaths,
   filterUnusedImports,
   createUseStatementsFromPaths,
+  AutoImportPath,
 } from '../rustAnalyzer/integration';
 import { groupImports } from '../transformer/grouper';
 import { mergeGroupedStatements, setMergerLogger } from '../transformer/merger';
@@ -84,7 +85,7 @@ export async function organizeImportsInDocument(
 
   // Step 2: Get unused symbols and auto-import paths from diagnostics
   const raAvailable = await isRustAnalyzerAvailable();
-  let autoImportPaths: string[] = [];
+  let autoImportPaths: AutoImportPath[] = [];
 
   if (raAvailable) {
     // Filter out unused imports (skip if there are error diagnostics to avoid false positives)
