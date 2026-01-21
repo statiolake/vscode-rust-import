@@ -413,6 +413,8 @@ export function parseRustFile(content: string): ParseResult {
   let currentUseStartLine = 0;
   let currentUseStartCol = 0;
   let braceCount = 0;
+  let currentBlockId = 0;
+  let hasImportsInCurrentBlock = false;
 
   // Skip initial attributes and comments at file level (like #![...])
   while (i < lines.length) {
@@ -429,9 +431,20 @@ export function parseRustFile(content: string): ParseResult {
     const line = lines[i];
     const trimmedLine = line.trim();
 
-    // Skip empty lines and comments when not in a use statement
+    // Handle empty lines and comments when not in a use statement
     if (!inUseStatement) {
-      if (trimmedLine === '' || trimmedLine.startsWith('//')) {
+      // Empty lines don't create new blocks
+      if (trimmedLine === '') {
+        i++;
+        continue;
+      }
+
+      // Comments create new blocks (if we had imports before)
+      if (trimmedLine.startsWith('//')) {
+        if (hasImportsInCurrentBlock) {
+          currentBlockId++;
+          hasImportsInCurrentBlock = false;
+        }
         i++;
         continue;
       }
@@ -465,7 +478,9 @@ export function parseRustFile(content: string): ParseResult {
 
           try {
             const useStmt = parseUseStatement(useStr, attributes, range);
+            useStmt.blockId = currentBlockId;
             imports.push(useStmt);
+            hasImportsInCurrentBlock = true;
           } catch (e) {
             // Skip malformed use statements
           }
@@ -505,7 +520,9 @@ export function parseRustFile(content: string): ParseResult {
 
       try {
         const useStmt = parseUseStatement(fullUseStr, attributes, range);
+        useStmt.blockId = currentBlockId;
         imports.push(useStmt);
+        hasImportsInCurrentBlock = true;
       } catch (e) {
         // Skip malformed use statements
       }

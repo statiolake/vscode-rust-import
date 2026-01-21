@@ -1,160 +1,286 @@
-import { UseStatement, UseTree, UsePathSegment } from '../parser/types';
+import {
+  UseStatement,
+  UseTree,
+  UsePathSegment,
+  FlatImport,
+} from '../parser/types';
 import { getRootPath } from '../parser/useParser';
 
 /**
- * Trie node for building merged import trees
+ * Expand a UseTree into flat imports.
+ * e.g., `std::{io::{Read, Write}, fs}` becomes:
+ *   - ["std", "io", "Read"]
+ *   - ["std", "io", "Write"]
+ *   - ["std", "fs"]
  */
-interface TrieNode {
-  segment: UsePathSegment;
-  children: Map<string, TrieNode>;
-  isTerminal: boolean;
-  isSelf: boolean;
-  isGlob: boolean;
+export function expandToFlatImports(
+  tree: UseTree,
+  prefix: string[] = [],
+): FlatImport[] {
+  // Self import - refers to parent path
+  // e.g., `std::io::{self}` means "import std::io itself"
+  if (tree.isSelf) {
+    return [{ path: prefix, isSelf: true }];
+  }
+
+  // Glob import - refers to parent path with glob
+  // e.g., `std::io::*` means "import everything from std::io"
+  if (tree.isGlob) {
+    return [{ path: prefix, isGlob: true }];
+  }
+
+  const currentPath = [...prefix, tree.segment.name];
+  const currentAlias = tree.segment.alias;
+
+  // Terminal node (no children)
+  if (!tree.children || tree.children.length === 0) {
+    return [{ path: currentPath, alias: currentAlias }];
+  }
+
+  // Has children - recurse
+  const result: FlatImport[] = [];
+  for (const child of tree.children) {
+    result.push(...expandToFlatImports(child, currentPath));
+  }
+  return result;
 }
 
 /**
- * Create a new trie node
+ * Get a unique key for a flat import (for deduplication).
+ * Note: `use X;` and `use X::{self};` are equivalent, so isSelf is not included in key.
  */
-function createTrieNode(segment: UsePathSegment): TrieNode {
-  return {
-    segment,
+function getFlatImportKey(imp: FlatImport): string {
+  let key = imp.path.join('::');
+  if (imp.isGlob) key += '::*';
+  // isSelf is NOT included - `X` and `X::{self}` should merge
+  return key;
+}
+
+/**
+ * Merge alias with priority: explicit alias > no alias > underscore alias ("_").
+ */
+function mergeAlias(
+  existing: string | undefined,
+  incoming: string | undefined,
+): string | undefined {
+  // If incoming has no alias
+  if (!incoming) {
+    // Remove underscore alias if existing has it
+    if (existing === '_') {
+      return undefined;
+    }
+    return existing;
+  }
+
+  // If incoming is underscore, never override existing
+  if (incoming === '_') {
+    return existing;
+  }
+
+  // Incoming is explicit alias - prefer it over underscore
+  if (existing === '_') {
+    return incoming;
+  }
+
+  // Both explicit or existing undefined - prefer incoming
+  return incoming;
+}
+
+/**
+ * Merge flat imports by deduplicating paths.
+ * Handles alias priority: explicit > none > underscore.
+ */
+export function mergeFlatImports(imports: FlatImport[]): FlatImport[] {
+  const byKey = new Map<string, FlatImport>();
+
+  for (const imp of imports) {
+    const key = getFlatImportKey(imp);
+    const existing = byKey.get(key);
+
+    if (!existing) {
+      byKey.set(key, { ...imp });
+    } else {
+      // Merge alias with priority
+      existing.alias = mergeAlias(existing.alias, imp.alias);
+      // Merge isSelf: if either is self, result is self
+      // (terminal `X` and `X::{self}` both mean "import X itself")
+      if (imp.isSelf) {
+        existing.isSelf = true;
+      }
+      // Merge isGlob
+      if (imp.isGlob) {
+        existing.isGlob = true;
+      }
+    }
+  }
+
+  return Array.from(byKey.values());
+}
+
+/**
+ * Build a UseTree from flat imports.
+ * Groups imports by common prefixes to create nested structure.
+ */
+export function buildUseTree(imports: FlatImport[]): UseTree | null {
+  if (imports.length === 0) {
+    return null;
+  }
+
+  // All imports should share the same root
+  const root = imports[0].path[0];
+
+  // Build tree using a simple trie-like structure
+  interface TreeNode {
+    name: string;
+    alias?: string;
+    children: Map<string, TreeNode>;
+    isTerminal: boolean;
+    isSelf: boolean;
+    isGlob: boolean;
+  }
+
+  const rootNode: TreeNode = {
+    name: root,
     children: new Map(),
     isTerminal: false,
     isSelf: false,
     isGlob: false,
   };
-}
 
-/**
- * Insert a use tree into a trie
- */
-function insertIntoTrie(root: TrieNode, tree: UseTree): void {
-  let current = root;
+  for (const imp of imports) {
+    let current = rootNode;
 
-  // Handle the root segment specially (it should match the trie root)
-  if (tree.segment.name !== root.segment.name) {
-    // Root mismatch - this shouldn't happen if grouping is done correctly
-    return;
-  }
+    // Walk the path (skip root which is already in rootNode)
+    for (let i = 1; i < imp.path.length; i++) {
+      const segment = imp.path[i];
+      let child = current.children.get(segment);
 
-  // Copy alias if present
-  if (tree.segment.alias) {
-    current.segment.alias = tree.segment.alias;
-  }
+      if (!child) {
+        child = {
+          name: segment,
+          children: new Map(),
+          isTerminal: false,
+          isSelf: false,
+          isGlob: false,
+        };
+        current.children.set(segment, child);
+      }
 
-  // Process children
-  if (!tree.children || tree.children.length === 0) {
-    // Terminal node
-    current.isTerminal = true;
-    return;
-  }
+      // Last segment gets the alias and flags
+      if (i === imp.path.length - 1) {
+        if (imp.alias) {
+          child.alias = imp.alias;
+        }
+        if (imp.isGlob) {
+          // Glob is a child of this node, not a property of this node
+          // Create a glob child node
+          const globChild: TreeNode = {
+            name: '*',
+            children: new Map(),
+            isTerminal: false,
+            isSelf: false,
+            isGlob: true,
+          };
+          child.children.set('*', globChild);
+        } else if (imp.isSelf) {
+          child.isSelf = true;
+        } else {
+          // Mark as terminal, but if it already has children, convert to self
+          if (child.children.size > 0 || child.isSelf) {
+            child.isSelf = true;
+          } else {
+            child.isTerminal = true;
+          }
+        }
+      }
 
-  for (const child of tree.children) {
-    insertChildIntoTrie(current, child);
-  }
-}
+      // If this node was terminal and now has children, convert to self
+      if (child.isTerminal && i < imp.path.length - 1) {
+        child.isTerminal = false;
+        child.isSelf = true;
+      }
 
-/**
- * Insert a child tree into a trie node
- */
-function insertChildIntoTrie(parent: TrieNode, tree: UseTree): void {
-  if (tree.isSelf) {
-    // Self import - mark parent as having self
-    parent.isSelf = true;
-    return;
-  }
-
-  if (tree.isGlob) {
-    // Glob import
-    parent.isGlob = true;
-    return;
-  }
-
-  const key = tree.segment.name;
-  let node = parent.children.get(key);
-
-  if (!node) {
-    node = createTrieNode({ ...tree.segment });
-    parent.children.set(key, node);
-  } else if (tree.segment.alias && !node.segment.alias) {
-    // Update alias if the new one has it
-    node.segment.alias = tree.segment.alias;
-  }
-
-  if (!tree.children || tree.children.length === 0) {
-    // Terminal node - if this node already has children, we need to add self
-    if (node.children.size > 0 || node.isSelf || node.isGlob) {
-      node.isSelf = true;
-    } else {
-      node.isTerminal = true;
+      current = child;
     }
-    return;
-  }
 
-  // If this node was previously terminal and now has children, convert to self
-  if (node.isTerminal) {
-    node.isTerminal = false;
-    node.isSelf = true;
-  }
-
-  for (const child of tree.children) {
-    insertChildIntoTrie(node, child);
-  }
-}
-
-/**
- * Convert a trie back to a UseTree
- */
-function trieToUseTree(node: TrieNode): UseTree {
-  const tree: UseTree = {
-    segment: { ...node.segment },
-  };
-
-  const children: UseTree[] = [];
-
-  // Add self first if present
-  if (node.isSelf) {
-    children.push({
-      segment: { name: 'self' },
-      isSelf: true,
-    });
-  }
-
-  // Add regular children
-  for (const child of node.children.values()) {
-    if (
-      child.isTerminal &&
-      child.children.size === 0 &&
-      !child.isSelf &&
-      !child.isGlob
-    ) {
-      // Leaf node - just add the segment
-      children.push({
-        segment: { ...child.segment },
-      });
-    } else {
-      // Non-leaf node - recurse
-      children.push(trieToUseTree(child));
+    // Handle root-level terminal (e.g., `use std;`)
+    if (imp.path.length === 1) {
+      if (imp.isGlob) {
+        rootNode.isGlob = true;
+      } else if (imp.isSelf) {
+        rootNode.isSelf = true;
+      } else {
+        rootNode.isTerminal = true;
+        if (imp.alias) {
+          rootNode.alias = imp.alias;
+        }
+      }
     }
   }
 
-  // Add glob last if present
-  if (node.isGlob) {
-    children.push({
-      segment: { name: '*' },
-      isGlob: true,
-    });
+  // Convert TreeNode to UseTree
+  function nodeToUseTree(node: TreeNode): UseTree {
+    const segment: UsePathSegment = { name: node.name };
+    if (node.alias) {
+      segment.alias = node.alias;
+    }
+
+    const tree: UseTree = { segment };
+
+    if (node.isGlob) {
+      tree.isGlob = true;
+      return tree;
+    }
+
+    if (node.isSelf && node.children.size === 0) {
+      tree.isSelf = true;
+      return tree;
+    }
+
+    const children: UseTree[] = [];
+
+    // Add self first if present
+    if (node.isSelf) {
+      children.push({ segment: { name: 'self' }, isSelf: true });
+    }
+
+    // Add regular children (sorted for consistent output)
+    // Glob (*) should come last, so separate it
+    const regularChildren: TreeNode[] = [];
+    let hasGlob = false;
+
+    for (const child of node.children.values()) {
+      if (child.isGlob) {
+        hasGlob = true;
+      } else {
+        regularChildren.push(child);
+      }
+    }
+
+    // Sort regular children alphabetically
+    regularChildren.sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const child of regularChildren) {
+      children.push(nodeToUseTree(child));
+    }
+
+    // Add glob last if present
+    if (hasGlob) {
+      children.push({ segment: { name: '*' }, isGlob: true });
+    }
+
+    if (children.length > 0) {
+      tree.children = children;
+    }
+
+    return tree;
   }
 
-  if (children.length > 0) {
-    tree.children = children;
-  }
-
-  return tree;
+  return nodeToUseTree(rootNode);
 }
 
 /**
- * Merge multiple use statements with the same root into one
+ * Merge multiple use statements with the same root into one.
  */
 export function mergeUseStatements(statements: UseStatement[]): UseStatement[] {
   if (statements.length === 0) {
@@ -175,24 +301,25 @@ export function mergeUseStatements(statements: UseStatement[]): UseStatement[] {
   const result: UseStatement[] = [];
 
   for (const [, groupStmts] of groups) {
-    if (groupStmts.length === 1) {
-      result.push(groupStmts[0]);
+    const firstStmt = groupStmts[0];
+
+    // Expand all statements to flat imports
+    const flatImports: FlatImport[] = [];
+    for (const stmt of groupStmts) {
+      flatImports.push(...expandToFlatImports(stmt.tree));
+    }
+
+    // Merge (deduplicate) flat imports
+    const mergedFlat = mergeFlatImports(flatImports);
+
+    // Build tree from flat imports
+    const mergedTree = buildUseTree(mergedFlat);
+
+    if (!mergedTree) {
       continue;
     }
 
-    // Build a trie from all statements in the group
-    const firstStmt = groupStmts[0];
-    const root = createTrieNode({ ...firstStmt.tree.segment });
-
-    for (const stmt of groupStmts) {
-      insertIntoTrie(root, stmt.tree);
-    }
-
-    // Convert trie back to UseTree
-    const mergedTree = trieToUseTree(root);
-
-    // Create merged statement (take visibility from first, no attributes for merged)
-    // Compute the merged range from all statements in the group
+    // Compute range
     const minStartLine = Math.min(...groupStmts.map((s) => s.range.start.line));
     const maxEndLine = Math.max(...groupStmts.map((s) => s.range.end.line));
     const firstOnMinLine = groupStmts.find(
@@ -202,8 +329,13 @@ export function mergeUseStatements(statements: UseStatement[]): UseStatement[] {
       (s) => s.range.end.line === maxEndLine,
     )!;
 
+    // Preserve attributes only for single statements
+    const attributes =
+      groupStmts.length === 1 ? firstStmt.attributes : undefined;
+
     result.push({
       visibility: firstStmt.visibility,
+      attributes,
       tree: mergedTree,
       range: {
         start: {
@@ -219,12 +351,11 @@ export function mergeUseStatements(statements: UseStatement[]): UseStatement[] {
 }
 
 /**
- * Merge statements within each group
+ * Merge statements within each group (by visibility).
  */
 export function mergeGroupedStatements(
   statements: UseStatement[],
 ): UseStatement[] {
-  // Group by visibility (different visibility = different statement)
   const byVisibility = new Map<string, UseStatement[]>();
 
   for (const stmt of statements) {
@@ -244,13 +375,12 @@ export function mergeGroupedStatements(
 }
 
 /**
- * Check if a use tree needs braces (has multiple children or special cases)
+ * Check if a use tree needs braces.
  */
 export function needsBraces(tree: UseTree): boolean {
   if (!tree.children) {
     return false;
   }
-  // Single child that is self or glob needs braces
   if (tree.children.length === 1) {
     const child = tree.children[0];
     return child.isSelf === true || child.isGlob === true;
@@ -259,7 +389,7 @@ export function needsBraces(tree: UseTree): boolean {
 }
 
 /**
- * Count total imports in a use tree
+ * Count total imports in a use tree.
  */
 export function countImports(tree: UseTree): number {
   if (tree.isGlob || tree.isSelf) {

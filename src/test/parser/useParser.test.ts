@@ -245,6 +245,47 @@ const X: usize = 4;`;
       // No code after imports, so blank line not needed
       assert.strictEqual(result.hasBlankLineAfterImports, true);
     });
+
+    test('assigns different block IDs when comment separates imports', () => {
+      const content = `use std::io;
+// External imports
+use serde::Deserialize;`;
+      const result = parseRustFile(content);
+      assert.strictEqual(result.imports.length, 2);
+      // Imports separated by comment should have different block IDs
+      assert.notStrictEqual(
+        result.imports[0].blockId,
+        result.imports[1].blockId,
+        'imports separated by comment should be in different blocks',
+      );
+    });
+
+    test('assigns same block ID for consecutive imports', () => {
+      const content = `use std::io;
+use std::fs;`;
+      const result = parseRustFile(content);
+      assert.strictEqual(result.imports.length, 2);
+      // Consecutive imports should have same block ID
+      assert.strictEqual(
+        result.imports[0].blockId,
+        result.imports[1].blockId,
+        'consecutive imports should be in same block',
+      );
+    });
+
+    test('ignores blank lines for block separation', () => {
+      const content = `use std::io;
+
+use std::fs;`;
+      const result = parseRustFile(content);
+      assert.strictEqual(result.imports.length, 2);
+      // Blank lines should not separate blocks (only comments do)
+      assert.strictEqual(
+        result.imports[0].blockId,
+        result.imports[1].blockId,
+        'blank lines should not create new blocks',
+      );
+    });
   });
 
   suite('getRootPath', () => {

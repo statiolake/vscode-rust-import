@@ -42,6 +42,7 @@ export interface UseStatement {
   tree: UseTree;
   attributes?: string[]; // #[cfg(...)] etc.
   range: Range; // Exact range of the use statement (including visibility, excluding attributes)
+  blockId?: number; // Block ID for grouping (imports separated by comments are in different blocks)
 }
 
 /**
@@ -70,6 +71,21 @@ export interface CargoDependencies {
   dependencies: Set<string>;
   devDependencies: Set<string>;
   buildDependencies: Set<string>;
+}
+
+/**
+ * Flattened import representation.
+ * Each FlatImport represents a single import path (e.g., std::io::Read).
+ */
+export interface FlatImport {
+  /** Full path segments (e.g., ["std", "io", "Read"]) */
+  path: string[];
+  /** Alias if present (e.g., "R" for "as R", "_" for "as _") */
+  alias?: string;
+  /** True if this is a glob import (path ends with *) */
+  isGlob?: boolean;
+  /** True if this is a self import */
+  isSelf?: boolean;
 }
 
 /**

@@ -189,5 +189,46 @@ suite('Grouper Test Suite', () => {
       assert.strictEqual(groups[2].category, ImportCategory.Internal);
       assert.strictEqual(groups[3].category, ImportCategory.Attributed);
     });
+
+    test('groups same attributes together', () => {
+      const imports = [
+        parseUseStatement('use crate::test_a;', ['#[cfg(test)]']),
+        parseUseStatement('use std::io;'),
+        parseUseStatement('use crate::test_b;', ['#[cfg(test)]']),
+      ];
+
+      const groups = groupImports(imports, cargoDeps);
+
+      // Attributed imports with same attribute should be in one group
+      const attributedGroup = groups.find(
+        (g) => g.category === ImportCategory.Attributed,
+      );
+      assert.ok(attributedGroup, 'should have attributed group');
+      assert.strictEqual(
+        attributedGroup?.imports.length,
+        2,
+        'both #[cfg(test)] imports should be in same group',
+      );
+    });
+
+    test('separates different attributes into different groups', () => {
+      const imports = [
+        parseUseStatement('use crate::test_utils;', ['#[cfg(test)]']),
+        parseUseStatement('use crate::feature_mod;', ['#[cfg(feature = "x")]']),
+        parseUseStatement('use std::io;'),
+      ];
+
+      const groups = groupImports(imports, cargoDeps);
+
+      // Each different attribute should be its own group
+      const attributedGroups = groups.filter(
+        (g) => g.category === ImportCategory.Attributed,
+      );
+      assert.strictEqual(
+        attributedGroups.length,
+        2,
+        'different attributes should create separate groups',
+      );
+    });
   });
 });
