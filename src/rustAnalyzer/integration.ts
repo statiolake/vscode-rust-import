@@ -1,10 +1,6 @@
 import * as vscode from 'vscode';
-import {
-  parseRustFile,
-  flattenUseTree,
-  parseUseStatement,
-} from '../parser/useParser';
-import type { UseStatement, UseTree, FlatImport } from '../parser/types';
+import { parseUseStatement } from '../parser/useParser';
+import type { UseStatement, FlatImport } from '../parser/types';
 import { expandToFlatImports, buildUseTree } from '../transformer/merger';
 
 const OUTPUT_CHANNEL = vscode.window.createOutputChannel(
@@ -173,12 +169,15 @@ export function hasErrorDiagnostics(document: vscode.TextDocument): boolean {
 }
 
 /**
- * Get unused symbols from diagnostics (without generating edits)
+ * Get unused import paths from diagnostics (without generating edits)
+ * Returns paths like "fmt::Write" or "Read" extracted from diagnostic messages
  */
-export function getUnusedSymbols(document: vscode.TextDocument): Set<string> {
-  log(`\n=== getUnusedSymbols started ===`);
+export function getUnusedImportPaths(
+  document: vscode.TextDocument,
+): Set<string> {
+  log(`\n=== getUnusedImportPaths started ===`);
 
-  const unusedSymbols = new Set<string>();
+  const unusedPaths = new Set<string>();
 
   try {
     const diagnostics = vscode.languages.getDiagnostics(document.uri);
@@ -190,31 +189,32 @@ export function getUnusedSymbols(document: vscode.TextDocument): Set<string> {
         d.message.includes('unused_imports');
 
       if (isRustSource && isUnusedImport) {
-        const symbol = extractUnusedSymbol(d.message);
-        if (symbol) {
-          log(`  Found unused symbol: ${symbol}`);
-          unusedSymbols.add(symbol);
+        const path = extractUnusedPath(d.message);
+        if (path) {
+          log(`  Found unused path: ${path}`);
+          unusedPaths.add(path);
         }
       }
     }
   } catch (error) {
-    log(`Failed to get unused symbols: ${error}`);
+    log(`Failed to get unused paths: ${error}`);
   }
 
-  log(`Found ${unusedSymbols.size} unused symbols`);
-  return unusedSymbols;
+  log(`Found ${unusedPaths.size} unused paths`);
+  return unusedPaths;
 }
 
 /**
- * Filter imports to remove unused symbols
- * Returns a new array with filtered imports (imports with all unused symbols are removed)
+ * Filter imports to remove unused imports
+ * Returns a new array with filtered imports (imports with all unused imports are removed)
  * When both `X` and `X as _` exist, prioritizes removing `X as _` first.
+ * Uses path matching to distinguish between e.g., fmt::Write and io::Write
  */
 export function filterUnusedImports(
   imports: UseStatement[],
-  unusedSymbols: Set<string>,
+  unusedPaths: Set<string>,
 ): UseStatement[] {
-  if (unusedSymbols.size === 0) {
+  if (unusedPaths.size === 0) {
     return imports;
   }
 
@@ -224,12 +224,12 @@ export function filterUnusedImports(
     // Expand to flat imports
     const flats = expandToFlatImports(stmt.tree);
 
-    // Check which symbols have an underscore alias version
-    const symbolHasUnderscore = new Map<string, boolean>();
+    // Check which paths have an underscore alias version
+    // Key: full path joined with ::
+    const pathHasUnderscore = new Map<string, boolean>();
     for (const flat of flats) {
-      const lastName = flat.path[flat.path.length - 1];
       if (flat.alias === '_') {
-        symbolHasUnderscore.set(lastName, true);
+        pathHasUnderscore.set(flat.path.join('::'), true);
       }
     }
 
@@ -237,28 +237,22 @@ export function filterUnusedImports(
     const filtered: FlatImport[] = [];
 
     for (const flat of flats) {
-      const lastName = flat.path[flat.path.length - 1];
+      const fullPath = flat.path.join('::');
 
-      if (unusedSymbols.has(lastName)) {
-        // This symbol is unused
+      if (isUnusedImport(flat, unusedPaths)) {
+        // This import is unused
         if (flat.alias === '_') {
           // Remove `as _` version
-          log(
-            `  Removing ${flat.path.join('::')} as _ (underscore alias, unused)`,
-          );
+          log(`  Removing ${fullPath} as _ (underscore alias, unused)`);
           continue;
-        } else if (symbolHasUnderscore.get(lastName)) {
+        } else if (pathHasUnderscore.get(fullPath)) {
           // Keep non-underscore version when underscore version exists
           // (underscore version will be removed instead)
-          log(
-            `  Keeping ${flat.path.join('::')} (underscore version will be removed)`,
-          );
+          log(`  Keeping ${fullPath} (underscore version will be removed)`);
           filtered.push(flat);
         } else {
           // Remove non-underscore version when no underscore version exists
-          log(
-            `  Removing ${flat.path.join('::')} (no underscore version, unused)`,
-          );
+          log(`  Removing ${fullPath} (no underscore version, unused)`);
           continue;
         }
       } else {
@@ -312,274 +306,50 @@ export function createUseStatementsFromPaths(
 }
 
 /**
- * Extract unused symbol name from diagnostic message
+ * Extract unused import path from diagnostic message
  * e.g., "unused import: `Duration`" -> "Duration"
+ * e.g., "unused import: `fmt::Write`" -> "fmt::Write"
  * e.g., "unused import: `Read as _`" -> "Read"
  */
-function extractUnusedSymbol(message: string): string | null {
+function extractUnusedPath(message: string): string | null {
   // Match patterns like "unused import: `Symbol`" or "unused import: `path::Symbol`"
   const match = message.match(/unused import:?\s*`([^`]+)`/i);
   if (match) {
     let path = match[1];
     // Remove "as ..." suffix (e.g., "Read as _" -> "Read")
     path = path.replace(/\s+as\s+\S+$/, '');
-    // Return just the symbol name (last segment)
-    return path.split('::').pop() || null;
+    return path;
   }
   return null;
 }
 
 /**
- * Filter a UseTree to remove unused symbols
- * Returns null if the entire tree should be removed
+ * Check if a full path ends with the given unused path
+ * e.g., ["std", "fmt", "Write"] ends with "fmt::Write" -> true
+ * e.g., ["std", "io", "Write"] ends with "fmt::Write" -> false
  */
-function filterUseTree(
-  tree: UseTree,
-  unusedSymbols: Set<string>,
-): UseTree | null {
-  // Get the symbol name (last segment or alias)
-  const symbolName = tree.segment.alias || tree.segment.name;
-
-  // Leaf node (no children)
-  if (!tree.children || tree.children.length === 0) {
-    // Check if this symbol is unused
-    if (unusedSymbols.has(symbolName)) {
-      return null; // Remove this node
-    }
-    return tree; // Keep this node
+function pathMatchesUnused(fullPath: string[], unusedPath: string): boolean {
+  const unusedSegments = unusedPath.split('::');
+  if (unusedSegments.length > fullPath.length) {
+    return false;
   }
-
-  // Has children - filter them recursively
-  const filteredChildren: UseTree[] = [];
-  for (const child of tree.children) {
-    const filtered = filterUseTree(child, unusedSymbols);
-    if (filtered) {
-      filteredChildren.push(filtered);
+  const startIdx = fullPath.length - unusedSegments.length;
+  for (let i = 0; i < unusedSegments.length; i++) {
+    if (fullPath[startIdx + i] !== unusedSegments[i]) {
+      return false;
     }
   }
-
-  // If no children remain, check if we should keep this as a leaf
-  if (filteredChildren.length === 0) {
-    // If this was a self import, check if self is unused
-    if (tree.isSelf && unusedSymbols.has('self')) {
-      return null;
-    }
-    // Otherwise, the entire subtree was unused
-    return null;
-  }
-
-  // Return tree with filtered children
-  return {
-    ...tree,
-    children: filteredChildren,
-  };
+  return true;
 }
 
 /**
- * Format a UseTree back to a string
+ * Check if a flat import matches any of the unused paths
  */
-function formatUseTree(tree: UseTree): string {
-  const segment = tree.segment.alias
-    ? `${tree.segment.name} as ${tree.segment.alias}`
-    : tree.segment.name;
-
-  if (tree.isGlob) {
-    return '*';
-  }
-
-  if (tree.isSelf) {
-    return segment;
-  }
-
-  if (!tree.children || tree.children.length === 0) {
-    return segment;
-  }
-
-  if (tree.children.length === 1 && !tree.children[0].isSelf) {
-    // Single child, can be flattened (unless it's self)
-    return `${segment}::${formatUseTree(tree.children[0])}`;
-  }
-
-  // Multiple children or self - use braces
-  const childrenStr = tree.children.map((c) => formatUseTree(c)).join(', ');
-  return `${segment}::{${childrenStr}}`;
-}
-
-export interface RemoveUnusedResult {
-  edits: Array<{ range: vscode.Range; text: string | null }>; // null means delete
-  count: number;
-}
-
-/**
- * Collect edits to remove unused imports based on diagnostics
- * Returns edits to be applied later (does not apply them)
- */
-export function collectRemoveUnusedEdits(
-  document: vscode.TextDocument,
-): RemoveUnusedResult {
-  log(`\n=== collectRemoveUnusedEdits started ===`);
-  log(`Document: ${document.uri.fsPath}`);
-
-  const result: RemoveUnusedResult = { edits: [], count: 0 };
-
-  try {
-    const diagnostics = vscode.languages.getDiagnostics(document.uri);
-    log(`Found ${diagnostics.length} total diagnostics`);
-
-    // Find unused import diagnostics and extract symbol names
-    const unusedSymbols = new Set<string>();
-
-    for (const d of diagnostics) {
-      const isRustSource = d.source === 'rust-analyzer' || d.source === 'rustc';
-      const isUnusedImport =
-        d.message.includes('unused import') ||
-        d.message.includes('unused_imports');
-
-      if (isRustSource && isUnusedImport) {
-        const symbol = extractUnusedSymbol(d.message);
-        if (symbol) {
-          log(`  Found unused symbol: ${symbol}`);
-          unusedSymbols.add(symbol);
-        }
-      }
-    }
-
-    log(`Found ${unusedSymbols.size} unused symbols`);
-
-    if (unusedSymbols.size === 0) {
-      return result;
-    }
-
-    // Parse the document to find use statements
-    const text = document.getText();
-    const parseResult = parseRustFile(text);
-
-    if (parseResult.imports.length === 0) {
-      return result;
-    }
-
-    // Process each import statement
-    for (const stmt of parseResult.imports) {
-      // Flatten to get all symbol names in this import
-      const paths = flattenUseTree(stmt.tree);
-      const symbolsInImport = paths.map((p) => p[p.length - 1]);
-
-      // Check which symbols are unused
-      const unusedInThisImport = symbolsInImport.filter((s) =>
-        unusedSymbols.has(s),
-      );
-
-      if (unusedInThisImport.length === 0) {
-        continue; // No unused symbols in this import
-      }
-
-      log(
-        `\nProcessing import at lines ${stmt.range.start.line + 1}-${stmt.range.end.line + 1}`,
-      );
-      log(`  Symbols: ${symbolsInImport.join(', ')}`);
-      log(`  Unused: ${unusedInThisImport.join(', ')}`);
-
-      // Filter the tree to remove unused symbols
-      const filteredTree = filterUseTree(stmt.tree, unusedSymbols);
-
-      // Use precise start/end positions from the statement's range
-      const startLine = stmt.range.start.line;
-      const endLine = stmt.range.end.line;
-      const startCol = stmt.range.start.column;
-      const endCol = stmt.range.end.column;
-
-      // Check if there's code before/after the import on the same line
-      const hasCodeBefore = startCol > 0;
-      const hasCodeAfter = endCol < document.lineAt(endLine).text.length;
-
-      if (!filteredTree) {
-        // Entire import is unused - delete it
-        log(`  Will delete entire import`);
-
-        let range: vscode.Range;
-        if (hasCodeBefore || hasCodeAfter) {
-          // Use statement is part of a line with other code - delete just the use statement
-          range = new vscode.Range(
-            new vscode.Position(startLine, startCol),
-            new vscode.Position(endLine, endCol),
-          );
-          result.edits.push({ range, text: '' });
-        } else {
-          // Use statement occupies full lines - delete entire lines including attributes
-          range = new vscode.Range(
-            new vscode.Position(startLine, 0),
-            new vscode.Position(endLine + 1, 0),
-          );
-          result.edits.push({ range, text: null });
-        }
-        result.count += unusedInThisImport.length;
-      } else {
-        // Some symbols remain - reformat the import
-        const visibility = stmt.visibility ? `${stmt.visibility} ` : '';
-        const attributes =
-          stmt.attributes && stmt.attributes.length > 0
-            ? stmt.attributes.join('\n') + '\n'
-            : '';
-        const newImport = `${visibility}use ${formatUseTree(filteredTree)};`;
-
-        let range: vscode.Range;
-        let replacement: string;
-        if (hasCodeBefore || hasCodeAfter) {
-          // Use statement is part of a line - replace just the use statement portion
-          range = new vscode.Range(
-            new vscode.Position(startLine, startCol),
-            new vscode.Position(endLine, endCol),
-          );
-          replacement = newImport;
-        } else {
-          // Use statement occupies full lines
-          range = new vscode.Range(
-            new vscode.Position(startLine, 0),
-            new vscode.Position(endLine + 1, 0),
-          );
-          replacement = `${attributes}${newImport}\n`;
-        }
-
-        log(`  Will replace with: ${newImport}`);
-        result.edits.push({ range, text: replacement });
-        result.count += unusedInThisImport.length;
-      }
-    }
-
-    log(`\nTotal unused imports to remove: ${result.count}`);
-  } catch (error) {
-    log(`Failed to collect remove unused edits: ${error}`);
-  }
-
-  return result;
-}
-
-/**
- * Remove unused imports (legacy function that applies edits immediately)
- */
-export async function removeUnusedImports(
-  document: vscode.TextDocument,
-): Promise<number> {
-  const result = collectRemoveUnusedEdits(document);
-
-  if (result.edits.length > 0) {
-    const edit = new vscode.WorkspaceEdit();
-    for (const e of result.edits) {
-      if (e.text === null) {
-        edit.delete(document.uri, e.range);
-      } else {
-        edit.replace(document.uri, e.range, e.text);
-      }
-    }
-    const applied = await vscode.workspace.applyEdit(edit);
-    if (applied) {
-      log(`Successfully removed ${result.count} unused imports`);
-      return result.count;
-    } else {
-      log(`Failed to apply edit`);
-      return 0;
+function isUnusedImport(flat: FlatImport, unusedPaths: Set<string>): boolean {
+  for (const unusedPath of unusedPaths) {
+    if (pathMatchesUnused(flat.path, unusedPath)) {
+      return true;
     }
   }
-
-  return 0;
+  return false;
 }
