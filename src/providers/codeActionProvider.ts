@@ -15,7 +15,7 @@ export class RustImportCodeActionProvider implements vscode.CodeActionProvider {
   provideCodeActions(
     document: vscode.TextDocument,
     _range: vscode.Range | vscode.Selection,
-    context: vscode.CodeActionContext,
+    _context: vscode.CodeActionContext,
     _token: vscode.CancellationToken,
   ): vscode.CodeAction[] {
     if (document.languageId !== 'rust') {
@@ -35,8 +35,9 @@ export class RustImportCodeActionProvider implements vscode.CodeActionProvider {
     };
     actions.push(organizeAction);
 
-    // QuickFix: Show when there are import-related diagnostics
-    const hasImportDiagnostics = context.diagnostics.some(
+    // QuickFix: Show when there are import-related diagnostics anywhere in the file
+    const allDiagnostics = vscode.languages.getDiagnostics(document.uri);
+    const hasImportDiagnostics = allDiagnostics.some(
       (d) =>
         (d.source === 'rustc' || d.source === 'rust-analyzer') &&
         (d.message.includes('unused import') ||
