@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { organizeImports } from './commands/organizeImports';
-import { autoImport } from './commands/autoImport';
 import { RustImportCodeActionProvider } from './providers/codeActionProvider';
 
 export function activate(context: vscode.ExtensionContext) {
@@ -10,11 +9,6 @@ export function activate(context: vscode.ExtensionContext) {
   const organizeCmd = vscode.commands.registerCommand(
     'rust-import.organizeImports',
     organizeImports,
-  );
-
-  const autoImportCmd = vscode.commands.registerCommand(
-    'rust-import.autoImport',
-    autoImport,
   );
 
   // Register Code Action Provider
@@ -27,7 +21,7 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
-  context.subscriptions.push(organizeCmd, autoImportCmd, codeActionProvider);
+  context.subscriptions.push(organizeCmd, codeActionProvider);
 }
 
 export function deactivate() {}

@@ -8,7 +8,6 @@ import * as vscode from 'vscode';
 export class RustImportCodeActionProvider implements vscode.CodeActionProvider {
   public static readonly providedCodeActionKinds = [
     vscode.CodeActionKind.SourceOrganizeImports,
-    vscode.CodeActionKind.Source.append('autoImport'),
   ];
 
   provideCodeActions(
@@ -33,17 +32,6 @@ export class RustImportCodeActionProvider implements vscode.CodeActionProvider {
       title: 'Rust Import Organizer: Organize Imports',
     };
     actions.push(organizeAction);
-
-    // Auto Import action (source.autoImport)
-    const autoImportAction = new vscode.CodeAction(
-      'Rust Import Organizer: Auto Import',
-      vscode.CodeActionKind.Source.append('autoImport'),
-    );
-    autoImportAction.command = {
-      command: 'rust-import.autoImport',
-      title: 'Rust Import Organizer: Auto Import',
-    };
-    actions.push(autoImportAction);
 
     return actions;
   }

@@ -25,21 +25,12 @@
       {
         "command": "rust-import.organizeImports",
         "title": "Rust Import Organizer: Organize Imports"
-      },
-      {
-        "command": "rust-import.autoImport",
-        "title": "Rust Import Organizer: Auto Import"
       }
     ],
     "menus": {
       "editor/context": [
         {
           "command": "rust-import.organizeImports",
-          "when": "editorLangId == rust",
-          "group": "1_modification"
-        },
-        {
-          "command": "rust-import.autoImport",
           "when": "editorLangId == rust",
           "group": "1_modification"
         }
