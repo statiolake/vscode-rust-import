@@ -4,7 +4,8 @@ import {
   flattenUseTree,
   parseUseStatement,
 } from '../parser/useParser';
-import type { UseStatement, UseTree } from '../parser/types';
+import type { UseStatement, UseTree, FlatImport } from '../parser/types';
+import { expandToFlatImports, buildUseTree } from '../transformer/merger';
 
 const OUTPUT_CHANNEL = vscode.window.createOutputChannel(
   'Rust Import Organizer',
@@ -324,6 +325,7 @@ export function getUnusedSymbols(document: vscode.TextDocument): Set<string> {
 /**
  * Filter imports to remove unused symbols
  * Returns a new array with filtered imports (imports with all unused symbols are removed)
+ * When both `X` and `X as _` exist, prioritizes removing `X as _` first.
  */
 export function filterUnusedImports(
   imports: UseStatement[],
@@ -333,20 +335,73 @@ export function filterUnusedImports(
     return imports;
   }
 
-  const filtered: UseStatement[] = [];
+  const result: UseStatement[] = [];
 
   for (const stmt of imports) {
-    const filteredTree = filterUseTree(stmt.tree, unusedSymbols);
-    if (filteredTree) {
-      filtered.push({
-        ...stmt,
-        tree: filteredTree,
-      });
+    // Expand to flat imports
+    const flats = expandToFlatImports(stmt.tree);
+
+    // Check which symbols have an underscore alias version
+    const symbolHasUnderscore = new Map<string, boolean>();
+    for (const flat of flats) {
+      const lastName = flat.path[flat.path.length - 1];
+      if (flat.alias === '_') {
+        symbolHasUnderscore.set(lastName, true);
+      }
     }
-    // If filteredTree is null, the entire import was unused - skip it
+
+    // Filter: prioritize removing `as _` versions
+    const filtered: FlatImport[] = [];
+
+    for (const flat of flats) {
+      const lastName = flat.path[flat.path.length - 1];
+
+      if (unusedSymbols.has(lastName)) {
+        // This symbol is unused
+        if (flat.alias === '_') {
+          // Remove `as _` version
+          log(
+            `  Removing ${flat.path.join('::')} as _ (underscore alias, unused)`,
+          );
+          continue;
+        } else if (symbolHasUnderscore.get(lastName)) {
+          // Keep non-underscore version when underscore version exists
+          // (underscore version will be removed instead)
+          log(
+            `  Keeping ${flat.path.join('::')} (underscore version will be removed)`,
+          );
+          filtered.push(flat);
+        } else {
+          // Remove non-underscore version when no underscore version exists
+          log(
+            `  Removing ${flat.path.join('::')} (no underscore version, unused)`,
+          );
+          continue;
+        }
+      } else {
+        // Not unused, keep it
+        filtered.push(flat);
+      }
+    }
+
+    if (filtered.length === 0) {
+      // All imports were removed
+      continue;
+    }
+
+    // Rebuild UseTree from filtered flat imports
+    const newTree = buildUseTree(filtered);
+    if (!newTree) {
+      continue;
+    }
+
+    result.push({
+      ...stmt,
+      tree: newTree,
+    });
   }
 
-  return filtered;
+  return result;
 }
 
 /**

@@ -6,6 +6,27 @@ import {
 } from '../parser/types';
 import { getRootPath } from '../parser/useParser';
 
+// Debug logging
+let logFn: ((msg: string) => void) | null = null;
+
+export function setMergerLogger(fn: (msg: string) => void): void {
+  logFn = fn;
+}
+
+function log(msg: string): void {
+  if (logFn) {
+    logFn(`[merger] ${msg}`);
+  }
+}
+
+function flatImportToString(imp: FlatImport): string {
+  let s = imp.path.join('::');
+  if (imp.alias) s += ` as ${imp.alias}`;
+  if (imp.isGlob) s += ' (glob)';
+  if (imp.isSelf) s += ' (self)';
+  return s;
+}
+
 /**
  * Expand a UseTree into flat imports.
  * e.g., `std::{io::{Read, Write}, fs}` becomes:
@@ -91,6 +112,11 @@ function mergeAlias(
  * Handles alias priority: explicit > none > underscore.
  */
 export function mergeFlatImports(imports: FlatImport[]): FlatImport[] {
+  log(`mergeFlatImports called with ${imports.length} imports:`);
+  for (const imp of imports) {
+    log(`  input: ${flatImportToString(imp)}`);
+  }
+
   const byKey = new Map<string, FlatImport>();
 
   for (const imp of imports) {
@@ -99,9 +125,13 @@ export function mergeFlatImports(imports: FlatImport[]): FlatImport[] {
 
     if (!existing) {
       byKey.set(key, { ...imp });
+      log(`  new key "${key}": ${flatImportToString(imp)}`);
     } else {
-      // Merge alias with priority
+      const oldAlias = existing.alias;
       existing.alias = mergeAlias(existing.alias, imp.alias);
+      log(
+        `  merge key "${key}": alias ${oldAlias} + ${imp.alias} = ${existing.alias}`,
+      );
       // Merge isSelf: if either is self, result is self
       // (terminal `X` and `X::{self}` both mean "import X itself")
       if (imp.isSelf) {
@@ -114,7 +144,13 @@ export function mergeFlatImports(imports: FlatImport[]): FlatImport[] {
     }
   }
 
-  return Array.from(byKey.values());
+  const result = Array.from(byKey.values());
+  log(`mergeFlatImports result (${result.length} imports):`);
+  for (const imp of result) {
+    log(`  output: ${flatImportToString(imp)}`);
+  }
+
+  return result;
 }
 
 /**

@@ -13,8 +13,19 @@ import {
   createUseStatementsFromPaths,
 } from '../rustAnalyzer/integration';
 import { groupImports } from '../transformer/grouper';
-import { mergeGroupedStatements } from '../transformer/merger';
+import { mergeGroupedStatements, setMergerLogger } from '../transformer/merger';
 import { sortUseStatements } from '../transformer/sorter';
+
+// Set up merger logging
+const OUTPUT_CHANNEL = vscode.window.createOutputChannel(
+  'Rust Import Organizer - Merger Debug',
+);
+
+function mergerLog(message: string): void {
+  OUTPUT_CHANNEL.appendLine(`[${new Date().toISOString()}] ${message}`);
+}
+
+setMergerLogger(mergerLog);
 
 /**
  * Organize imports in the current Rust file
