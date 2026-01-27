@@ -9,13 +9,6 @@ export function formatUseTree(tree: UseTree, indent: string = ''): string {
     return '*';
   }
 
-  if (tree.isSelf) {
-    if (tree.segment.alias) {
-      return `self as ${tree.segment.alias}`;
-    }
-    return 'self';
-  }
-
   let result = tree.segment.name;
 
   if (tree.segment.alias) {

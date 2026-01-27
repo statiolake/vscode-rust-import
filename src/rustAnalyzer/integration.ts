@@ -189,8 +189,8 @@ export function getUnusedImportPaths(
         d.message.includes('unused_imports');
 
       if (isRustSource && isUnusedImport) {
-        const path = extractUnusedPath(d.message);
-        if (path) {
+        const paths = extractUnusedPaths(d.message);
+        for (const path of paths) {
           log(`  Found unused path: ${path}`);
           unusedPaths.add(path);
         }
@@ -306,21 +306,30 @@ export function createUseStatementsFromPaths(
 }
 
 /**
- * Extract unused import path from diagnostic message
- * e.g., "unused import: `Duration`" -> "Duration"
- * e.g., "unused import: `fmt::Write`" -> "fmt::Write"
- * e.g., "unused import: `Read as _`" -> "Read"
+ * Extract unused import paths from diagnostic message
+ * Handles both singular and plural forms:
+ * e.g., "unused import: `Duration`" -> ["Duration"]
+ * e.g., "unused imports: `args` and `self`" -> ["args", "self"]
+ * e.g., "unused import: `Read as _`" -> ["Read"]
  */
-function extractUnusedPath(message: string): string | null {
-  // Match patterns like "unused import: `Symbol`" or "unused import: `path::Symbol`"
-  const match = message.match(/unused import:?\s*`([^`]+)`/i);
-  if (match) {
+function extractUnusedPaths(message: string): string[] {
+  // Check if this is an unused import message
+  if (!message.includes('unused import')) {
+    return [];
+  }
+
+  // Extract all backtick-quoted symbols from the message
+  const paths: string[] = [];
+  const matches = message.matchAll(/`([^`]+)`/g);
+
+  for (const match of matches) {
     let path = match[1];
     // Remove "as ..." suffix (e.g., "Read as _" -> "Read")
     path = path.replace(/\s+as\s+\S+$/, '');
-    return path;
+    paths.push(path);
   }
-  return null;
+
+  return paths;
 }
 
 /**

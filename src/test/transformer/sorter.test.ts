@@ -49,7 +49,7 @@ suite('Sorter Test Suite', () => {
       const sorted = sortUseTree(stmt.tree);
 
       const ioChildren = sorted.children?.[0].children;
-      assert.strictEqual(ioChildren?.[0].isSelf, true);
+      assert.strictEqual(ioChildren?.[0].segment.name, 'self');
       assert.strictEqual(ioChildren?.[1].segment.name, 'Read');
       assert.strictEqual(ioChildren?.[2].segment.name, 'Write');
     });
@@ -109,7 +109,7 @@ suite('Sorter Test Suite', () => {
       const sorted = sortUseTree(stmt.tree);
 
       const children = sorted.children;
-      assert.strictEqual(children?.[0].isSelf, true);
+      assert.strictEqual(children?.[0].segment.name, 'self');
       assert.strictEqual(children?.[1].segment.name, 'Aaa');
       assert.strictEqual(children?.[2].segment.name, 'Bar');
       assert.strictEqual(children?.[3].isGlob, true);

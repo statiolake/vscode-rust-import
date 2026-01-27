@@ -31,7 +31,6 @@ export interface UseTree {
   segment: UsePathSegment;
   children?: UseTree[];
   isGlob?: boolean; // For wildcard: *
-  isSelf?: boolean; // For self keyword
 }
 
 /**
@@ -84,8 +83,6 @@ export interface FlatImport {
   alias?: string;
   /** True if this is a glob import (path ends with *) */
   isGlob?: boolean;
-  /** True if this is a self import */
-  isSelf?: boolean;
 }
 
 /**

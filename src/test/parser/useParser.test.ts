@@ -74,7 +74,7 @@ suite('UseParser Test Suite', () => {
       assert.strictEqual(result.tree.segment.name, 'std');
       const ioChild = result.tree.children?.[0];
       assert.strictEqual(ioChild?.segment.name, 'io');
-      assert.strictEqual(ioChild?.children?.[0].isSelf, true);
+      assert.strictEqual(ioChild?.children?.[0].segment.name, 'self');
       assert.strictEqual(ioChild?.children?.[1].segment.name, 'Read');
     });
 

@@ -36,7 +36,9 @@ suite('Merger Test Suite', () => {
       assert.strictEqual(ioNode?.children?.length, 2);
 
       // Should have self and Read
-      const selfChild = ioNode?.children?.find((c) => c.isSelf);
+      const selfChild = ioNode?.children?.find(
+        (c) => c.segment.name === 'self',
+      );
       const readChild = ioNode?.children?.find(
         (c) => c.segment.name === 'Read',
       );
@@ -338,7 +340,9 @@ suite('Merger Test Suite', () => {
       assert.ok(ioNode, 'should have io node');
 
       // Should have self and Read as children
-      const selfChild = ioNode?.children?.find((c) => c.isSelf);
+      const selfChild = ioNode?.children?.find(
+        (c) => c.segment.name === 'self',
+      );
       const readChild = ioNode?.children?.find(
         (c) => c.segment.name === 'Read',
       );
@@ -361,7 +365,9 @@ suite('Merger Test Suite', () => {
       assert.ok(ioNode, 'should have io node');
 
       // Should have self and Read (no duplicate io)
-      const selfChild = ioNode?.children?.find((c) => c.isSelf);
+      const selfChild = ioNode?.children?.find(
+        (c) => c.segment.name === 'self',
+      );
       const readChild = ioNode?.children?.find(
         (c) => c.segment.name === 'Read',
       );

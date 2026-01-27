@@ -27,10 +27,12 @@ export function sortUseTree(tree: UseTree): UseTree {
     .map((child) => sortUseTree(child))
     .sort((a, b) => {
       // self comes first
-      if (a.isSelf && !b.isSelf) {
+      const aIsSelf = a.segment.name === 'self';
+      const bIsSelf = b.segment.name === 'self';
+      if (aIsSelf && !bIsSelf) {
         return -1;
       }
-      if (!a.isSelf && b.isSelf) {
+      if (!aIsSelf && bIsSelf) {
         return 1;
       }
 

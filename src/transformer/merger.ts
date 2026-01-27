@@ -21,31 +21,37 @@ function log(msg: string): void {
 
 function flatImportToString(imp: FlatImport): string {
   let s = imp.path.join('::');
-  if (imp.alias) s += ` as ${imp.alias}`;
-  if (imp.isGlob) s += ' (glob)';
-  if (imp.isSelf) s += ' (self)';
+  if (imp.alias) {
+    s += ` as ${imp.alias}`;
+  }
+  if (imp.isGlob) {
+    s += ' (glob)';
+  }
   return s;
 }
 
 /**
- * Expand a UseTree into flat imports.
- * e.g., `std::{io::{Read, Write}, fs}` becomes:
+ * Expand a UseTree into flat imports (canonical form).
+ * e.g., `std::{io::{self, Read, Write}, fs}` becomes:
+ *   - ["std", "io"]        (from self)
  *   - ["std", "io", "Read"]
  *   - ["std", "io", "Write"]
  *   - ["std", "fs"]
+ *
+ * Note: `self` is converted to the parent path (canonical form).
+ * `use std::env::{self}` and `use std::env;` both become `["std", "env"]`.
  */
 export function expandToFlatImports(
   tree: UseTree,
   prefix: string[] = [],
 ): FlatImport[] {
-  // Self import - refers to parent path
-  // e.g., `std::io::{self}` means "import std::io itself"
-  if (tree.isSelf) {
-    return [{ path: prefix, isSelf: true }];
+  // Handle `self` keyword - it refers to the parent path
+  // e.g., in `std::io::{self}`, self means "import std::io itself"
+  if (tree.segment.name === 'self') {
+    return [{ path: prefix, alias: tree.segment.alias }];
   }
 
-  // Glob import - refers to parent path with glob
-  // e.g., `std::io::*` means "import everything from std::io"
+  // Glob import
   if (tree.isGlob) {
     return [{ path: prefix, isGlob: true }];
   }
@@ -68,12 +74,12 @@ export function expandToFlatImports(
 
 /**
  * Get a unique key for a flat import (for deduplication).
- * Note: `use X;` and `use X::{self};` are equivalent, so isSelf is not included in key.
  */
 function getFlatImportKey(imp: FlatImport): string {
   let key = imp.path.join('::');
-  if (imp.isGlob) key += '::*';
-  // isSelf is NOT included - `X` and `X::{self}` should merge
+  if (imp.isGlob) {
+    key += '::*';
+  }
   return key;
 }
 
@@ -132,11 +138,6 @@ export function mergeFlatImports(imports: FlatImport[]): FlatImport[] {
       log(
         `  merge key "${key}": alias ${oldAlias} + ${imp.alias} = ${existing.alias}`,
       );
-      // Merge isSelf: if either is self, result is self
-      // (terminal `X` and `X::{self}` both mean "import X itself")
-      if (imp.isSelf) {
-        existing.isSelf = true;
-      }
       // Merge isGlob
       if (imp.isGlob) {
         existing.isGlob = true;
@@ -156,6 +157,10 @@ export function mergeFlatImports(imports: FlatImport[]): FlatImport[] {
 /**
  * Build a UseTree from flat imports.
  * Groups imports by common prefixes to create nested structure.
+ *
+ * The tree structure is determined purely by the imports:
+ * - A node is terminal if it has no children
+ * - A node needs {self, ...} if it's imported AND has children
  */
 export function buildUseTree(imports: FlatImport[]): UseTree | null {
   if (imports.length === 0) {
@@ -170,16 +175,14 @@ export function buildUseTree(imports: FlatImport[]): UseTree | null {
     name: string;
     alias?: string;
     children: Map<string, TreeNode>;
-    isTerminal: boolean;
-    isSelf: boolean;
+    isImported: boolean; // This path itself is imported (not just a prefix)
     isGlob: boolean;
   }
 
   const rootNode: TreeNode = {
     name: root,
     children: new Map(),
-    isTerminal: false,
-    isSelf: false,
+    isImported: false,
     isGlob: false,
   };
 
@@ -195,61 +198,41 @@ export function buildUseTree(imports: FlatImport[]): UseTree | null {
         child = {
           name: segment,
           children: new Map(),
-          isTerminal: false,
-          isSelf: false,
+          isImported: false,
           isGlob: false,
         };
         current.children.set(segment, child);
       }
 
-      // Last segment gets the alias and flags
+      // Last segment gets the alias and marks as imported
       if (i === imp.path.length - 1) {
+        child.isImported = true;
         if (imp.alias) {
           child.alias = imp.alias;
         }
         if (imp.isGlob) {
-          // Glob is a child of this node, not a property of this node
-          // Create a glob child node
+          // Glob is a child of this node
           const globChild: TreeNode = {
             name: '*',
             children: new Map(),
-            isTerminal: false,
-            isSelf: false,
+            isImported: false,
             isGlob: true,
           };
           child.children.set('*', globChild);
-        } else if (imp.isSelf) {
-          child.isSelf = true;
-        } else {
-          // Mark as terminal, but if it already has children, convert to self
-          if (child.children.size > 0 || child.isSelf) {
-            child.isSelf = true;
-          } else {
-            child.isTerminal = true;
-          }
         }
-      }
-
-      // If this node was terminal and now has children, convert to self
-      if (child.isTerminal && i < imp.path.length - 1) {
-        child.isTerminal = false;
-        child.isSelf = true;
       }
 
       current = child;
     }
 
-    // Handle root-level terminal (e.g., `use std;`)
+    // Handle root-level import (e.g., `use std;`)
     if (imp.path.length === 1) {
+      rootNode.isImported = true;
+      if (imp.alias) {
+        rootNode.alias = imp.alias;
+      }
       if (imp.isGlob) {
         rootNode.isGlob = true;
-      } else if (imp.isSelf) {
-        rootNode.isSelf = true;
-      } else {
-        rootNode.isTerminal = true;
-        if (imp.alias) {
-          rootNode.alias = imp.alias;
-        }
       }
     }
   }
@@ -268,16 +251,22 @@ export function buildUseTree(imports: FlatImport[]): UseTree | null {
       return tree;
     }
 
-    if (node.isSelf && node.children.size === 0) {
-      tree.isSelf = true;
+    // If no children, it's a terminal node
+    if (node.children.size === 0) {
       return tree;
     }
 
     const children: UseTree[] = [];
 
-    // Add self first if present
-    if (node.isSelf) {
-      children.push({ segment: { name: 'self' }, isSelf: true });
+    // If this node is imported AND has children, we need {self, ...}
+    if (node.isImported) {
+      const selfSegment: UsePathSegment = { name: 'self' };
+      if (node.alias) {
+        selfSegment.alias = node.alias;
+        // Clear alias from parent since it's now on self
+        segment.alias = undefined;
+      }
+      children.push({ segment: selfSegment });
     }
 
     // Add regular children (sorted for consistent output)
@@ -412,6 +401,9 @@ export function mergeGroupedStatements(
 
 /**
  * Check if a use tree needs braces.
+ * Braces are needed when:
+ * - There are multiple children
+ * - The single child is `self` or `*`
  */
 export function needsBraces(tree: UseTree): boolean {
   if (!tree.children) {
@@ -419,7 +411,7 @@ export function needsBraces(tree: UseTree): boolean {
   }
   if (tree.children.length === 1) {
     const child = tree.children[0];
-    return child.isSelf === true || child.isGlob === true;
+    return child.segment.name === 'self' || child.isGlob === true;
   }
   return tree.children.length > 1;
 }
@@ -428,7 +420,7 @@ export function needsBraces(tree: UseTree): boolean {
  * Count total imports in a use tree.
  */
 export function countImports(tree: UseTree): number {
-  if (tree.isGlob || tree.isSelf) {
+  if (tree.isGlob) {
     return 1;
   }
 

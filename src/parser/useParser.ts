@@ -4,7 +4,6 @@ import {
   UsePathSegment,
   ParseResult,
   Range,
-  Position,
 } from './types';
 
 /**
@@ -229,7 +228,6 @@ class UseTreeParser {
       }
       return {
         segment,
-        isSelf: true,
       };
     }
 
@@ -587,13 +585,14 @@ export function flattenUseTree(
   tree: UseTree,
   prefix: string[] = [],
 ): string[][] {
+  // Handle `self` - it refers to the parent path
+  if (tree.segment.name === 'self') {
+    return [prefix];
+  }
+
   const currentPath = [...prefix, tree.segment.name];
 
   if (tree.isGlob) {
-    return [currentPath];
-  }
-
-  if (tree.isSelf) {
     return [currentPath];
   }
 
