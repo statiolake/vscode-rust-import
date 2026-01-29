@@ -31,6 +31,8 @@ enum TokenType {
 interface Token {
   type: TokenType;
   value: string;
+  /** Line number (0-based, relative to the start of the use statement) */
+  line: number;
   /** Start position in source (column only, line is always 0 for single-line parsing) */
   startCol: number;
   /** End position in source (exclusive) */
@@ -39,13 +41,24 @@ interface Token {
 
 /**
  * Tokenize a use statement string
+ * Tracks line numbers for multi-line use statements
  */
 function tokenize(input: string): Token[] {
   const tokens: Token[] = [];
   let pos = 0;
+  let line = 0;
+  let lineStartPos = 0;
 
   while (pos < input.length) {
-    // Skip whitespace
+    // Track newlines for line numbering
+    if (input[pos] === '\n') {
+      line++;
+      lineStartPos = pos + 1;
+      pos++;
+      continue;
+    }
+
+    // Skip whitespace (except newline which we handled above)
     if (/\s/.test(input[pos])) {
       pos++;
       continue;
@@ -56,8 +69,9 @@ function tokenize(input: string): Token[] {
       tokens.push({
         type: TokenType.DoubleColon,
         value: '::',
-        startCol: pos,
-        endCol: pos + 2,
+        line,
+        startCol: pos - lineStartPos,
+        endCol: pos - lineStartPos + 2,
       });
       pos += 2;
       continue;
@@ -78,8 +92,9 @@ function tokenize(input: string): Token[] {
       tokens.push({
         type: singleCharTokens[input[pos]],
         value: input[pos],
-        startCol: pos,
-        endCol: pos + 1,
+        line,
+        startCol: pos - lineStartPos,
+        endCol: pos - lineStartPos + 1,
       });
       pos++;
       continue;
@@ -87,13 +102,13 @@ function tokenize(input: string): Token[] {
 
     // Keywords and identifiers
     if (/[a-zA-Z_]/.test(input[pos])) {
-      const startCol = pos;
+      const startCol = pos - lineStartPos;
       let ident = '';
       while (pos < input.length && /[a-zA-Z0-9_]/.test(input[pos])) {
         ident += input[pos];
         pos++;
       }
-      const endCol = pos;
+      const endCol = pos - lineStartPos;
 
       const keywordMap: Record<string, TokenType> = {
         use: TokenType.Use,
@@ -109,6 +124,7 @@ function tokenize(input: string): Token[] {
         tokens.push({
           type: keywordMap[ident],
           value: ident,
+          line,
           startCol,
           endCol,
         });
@@ -116,6 +132,7 @@ function tokenize(input: string): Token[] {
         tokens.push({
           type: TokenType.Identifier,
           value: ident,
+          line,
           startCol,
           endCol,
         });
@@ -147,11 +164,17 @@ class UseTreeParser {
     this.baseCol = baseCol;
   }
 
-  /** Convert token column to absolute range in source */
+  /** Convert token position to absolute range in source */
   private tokenToRange(token: Token): Range {
     return {
-      start: { line: this.baseLine, column: this.baseCol + token.startCol },
-      end: { line: this.baseLine, column: this.baseCol + token.endCol },
+      start: {
+        line: this.baseLine + token.line,
+        column: this.baseCol + token.startCol,
+      },
+      end: {
+        line: this.baseLine + token.line,
+        column: this.baseCol + token.endCol,
+      },
     };
   }
 

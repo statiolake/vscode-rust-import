@@ -169,12 +169,12 @@ export async function organizeImportsInDocument(
   // Build formatted text with proper spacing
   let formattedText = formattedImports.trimEnd();
   if (hasCodeBeforeImports) {
-    formattedText = '\n\n' + formattedText;
+    formattedText = `\n\n${formattedText}`;
   }
   if (hasCodeAfterImports) {
-    formattedText = formattedText + '\n\n';
+    formattedText = `${formattedText}\n\n`;
   } else if (needsBlankLineAfter && formattedText) {
-    formattedText = formattedText + '\n';
+    formattedText = `${formattedText}\n`;
   }
 
   // If no existing imports but adding new ones, ensure proper formatting
