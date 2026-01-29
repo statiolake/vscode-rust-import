@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { parseUseStatement } from '../parser/useParser';
-import type { UseStatement, FlatImport } from '../parser/types';
+import type { UseStatement, FlatImport, Range } from '../parser/types';
 import { expandToFlatImports, buildUseTree } from '../transformer/merger';
 
 const OUTPUT_CHANNEL = vscode.window.createOutputChannel(
@@ -169,15 +169,23 @@ export function hasErrorDiagnostics(document: vscode.TextDocument): boolean {
 }
 
 /**
- * Get unused import paths from diagnostics (without generating edits)
- * Returns paths like "fmt::Write" or "Read" extracted from diagnostic messages
+ * Unused import diagnostic with its range in the source
  */
-export function getUnusedImportPaths(
-  document: vscode.TextDocument,
-): Set<string> {
-  log(`\n=== getUnusedImportPaths started ===`);
+export interface UnusedImportDiagnostic {
+  /** Range in the source where the diagnostic points */
+  range: Range;
+}
 
-  const unusedPaths = new Set<string>();
+/**
+ * Get unused import diagnostics from rust-analyzer
+ * Returns diagnostics with their source ranges for span-based matching
+ */
+export function getUnusedImportDiagnostics(
+  document: vscode.TextDocument,
+): UnusedImportDiagnostic[] {
+  log(`\n=== getUnusedImportDiagnostics started ===`);
+
+  const result: UnusedImportDiagnostic[] = [];
 
   try {
     const diagnostics = vscode.languages.getDiagnostics(document.uri);
@@ -189,39 +197,89 @@ export function getUnusedImportPaths(
         d.message.includes('unused_imports');
 
       if (isRustSource && isUnusedImport) {
-        const paths = extractUnusedPaths(d.message);
-        for (const path of paths) {
-          log(`  Found unused path: ${path}`);
-          unusedPaths.add(path);
-        }
+        // Convert vscode.Range to our Range type
+        const range: Range = {
+          start: { line: d.range.start.line, column: d.range.start.character },
+          end: { line: d.range.end.line, column: d.range.end.character },
+        };
+        log(
+          `  Found unused import at ${range.start.line}:${range.start.column}-${range.end.line}:${range.end.column}`,
+        );
+        result.push({ range });
       }
     }
   } catch (error) {
-    log(`Failed to get unused paths: ${error}`);
+    log(`Failed to get unused diagnostics: ${error}`);
   }
 
-  log(`Found ${unusedPaths.size} unused paths`);
-  return unusedPaths;
+  log(`Found ${result.length} unused import diagnostics`);
+  return result;
 }
 
 /**
- * Filter imports to remove unused imports
+ * Check if a diagnostic range is contained within any of the spans
+ */
+function rangeContainedInSpans(
+  diagRange: Range,
+  spans: Range[] | undefined,
+): boolean {
+  if (!spans || spans.length === 0) {
+    return false;
+  }
+
+  for (const span of spans) {
+    // Check if diagRange is contained within span
+    // A range is contained if its start is >= span start and end is <= span end
+    const startContained =
+      diagRange.start.line > span.start.line ||
+      (diagRange.start.line === span.start.line &&
+        diagRange.start.column >= span.start.column);
+    const endContained =
+      diagRange.end.line < span.end.line ||
+      (diagRange.end.line === span.end.line &&
+        diagRange.end.column <= span.end.column);
+
+    if (startContained && endContained) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Check if a flat import is marked as unused by any diagnostic
+ */
+function isUnusedByDiagnostics(
+  flat: FlatImport,
+  diagnostics: UnusedImportDiagnostic[],
+): boolean {
+  for (const diag of diagnostics) {
+    if (rangeContainedInSpans(diag.range, flat.spans)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Filter imports to remove unused imports (span-based matching)
  * Returns a new array with filtered imports (imports with all unused imports are removed)
  * When both `X` and `X as _` exist, prioritizes removing `X as _` first.
- * Uses path matching to distinguish between e.g., fmt::Write and io::Write
+ * Uses span-based matching: diagnostic range must be contained in import's spans
  */
 export function filterUnusedImports(
   imports: UseStatement[],
-  unusedPaths: Set<string>,
+  unusedDiagnostics: UnusedImportDiagnostic[],
 ): UseStatement[] {
-  if (unusedPaths.size === 0) {
+  if (unusedDiagnostics.length === 0) {
     return imports;
   }
 
   const result: UseStatement[] = [];
 
   for (const stmt of imports) {
-    // Expand to flat imports
+    // Expand to flat imports (with spans)
     const flats = expandToFlatImports(stmt.tree);
 
     // Check which paths have an underscore alias version
@@ -239,12 +297,11 @@ export function filterUnusedImports(
     for (const flat of flats) {
       const fullPath = flat.path.join('::');
 
-      if (isUnusedImport(flat, unusedPaths)) {
+      if (isUnusedByDiagnostics(flat, unusedDiagnostics)) {
         // This import is unused
         if (flat.alias === '_') {
           // Remove `as _` version
           log(`  Removing ${fullPath} as _ (underscore alias, unused)`);
-          continue;
         } else if (pathHasUnderscore.get(fullPath)) {
           // Keep non-underscore version when underscore version exists
           // (underscore version will be removed instead)
@@ -253,7 +310,6 @@ export function filterUnusedImports(
         } else {
           // Remove non-underscore version when no underscore version exists
           log(`  Removing ${fullPath} (no underscore version, unused)`);
-          continue;
         }
       } else {
         // Not unused, keep it
@@ -303,62 +359,4 @@ export function createUseStatementsFromPaths(
   }
 
   return statements;
-}
-
-/**
- * Extract unused import paths from diagnostic message
- * Handles both singular and plural forms:
- * e.g., "unused import: `Duration`" -> ["Duration"]
- * e.g., "unused imports: `args` and `self`" -> ["args", "self"]
- * e.g., "unused import: `Read as _`" -> ["Read"]
- */
-function extractUnusedPaths(message: string): string[] {
-  // Check if this is an unused import message
-  if (!message.includes('unused import')) {
-    return [];
-  }
-
-  // Extract all backtick-quoted symbols from the message
-  const paths: string[] = [];
-  const matches = message.matchAll(/`([^`]+)`/g);
-
-  for (const match of matches) {
-    let path = match[1];
-    // Remove "as ..." suffix (e.g., "Read as _" -> "Read")
-    path = path.replace(/\s+as\s+\S+$/, '');
-    paths.push(path);
-  }
-
-  return paths;
-}
-
-/**
- * Check if a full path ends with the given unused path
- * e.g., ["std", "fmt", "Write"] ends with "fmt::Write" -> true
- * e.g., ["std", "io", "Write"] ends with "fmt::Write" -> false
- */
-function pathMatchesUnused(fullPath: string[], unusedPath: string): boolean {
-  const unusedSegments = unusedPath.split('::');
-  if (unusedSegments.length > fullPath.length) {
-    return false;
-  }
-  const startIdx = fullPath.length - unusedSegments.length;
-  for (let i = 0; i < unusedSegments.length; i++) {
-    if (fullPath[startIdx + i] !== unusedSegments[i]) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/**
- * Check if a flat import matches any of the unused paths
- */
-function isUnusedImport(flat: FlatImport, unusedPaths: Set<string>): boolean {
-  for (const unusedPath of unusedPaths) {
-    if (pathMatchesUnused(flat.path, unusedPath)) {
-      return true;
-    }
-  }
-  return false;
 }

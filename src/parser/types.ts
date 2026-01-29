@@ -21,6 +21,8 @@ export interface Range {
 export interface UsePathSegment {
   name: string;
   alias?: string;
+  /** Range of this segment in the source code */
+  range?: Range;
 }
 
 /**
@@ -83,6 +85,13 @@ export interface FlatImport {
   alias?: string;
   /** True if this is a glob import (path ends with *) */
   isGlob?: boolean;
+  /**
+   * Source spans for this import (may be non-contiguous).
+   * e.g., for `use std::env::{self, args}`:
+   * - "std::env" (self) has spans for "std::env::" and "self"
+   * - "std::env::args" has spans for "std::env::" and "args"
+   */
+  spans?: Range[];
 }
 
 /**

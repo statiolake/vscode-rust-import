@@ -3,6 +3,7 @@ import {
   UseTree,
   UsePathSegment,
   FlatImport,
+  Range,
 } from '../parser/types';
 import { getRootPath } from '../parser/useParser';
 
@@ -33,41 +34,63 @@ function flatImportToString(imp: FlatImport): string {
 /**
  * Expand a UseTree into flat imports (canonical form).
  * e.g., `std::{io::{self, Read, Write}, fs}` becomes:
- *   - ["std", "io"]        (from self)
- *   - ["std", "io", "Read"]
- *   - ["std", "io", "Write"]
- *   - ["std", "fs"]
+ *   - ["std", "io", "self"]        (explicit self keyword)
+ *   - ["std", "io", "Read", ""]    (terminal marker)
+ *   - ["std", "io", "Write", ""]   (terminal marker)
+ *   - ["std", "fs", ""]            (terminal marker)
  *
- * Note: `self` is converted to the parent path (canonical form).
- * `use std::env::{self}` and `use std::env;` both become `["std", "env"]`.
+ * Note: Explicit `self` is kept as "self", while terminal nodes use "" as marker.
+ * This allows distinguishing between:
+ * - An explicit `self` keyword that can be reported as unused
+ * - A terminal import marker that shouldn't match "self" unused reports
+ *
+ * Each FlatImport includes spans - the source ranges for each segment.
+ * For `use std::env::{self, args}`:
+ * - "std::env" (self) has spans for [std, env, self]
+ * - "std::env::args" has spans for [std, env, args]
  */
 export function expandToFlatImports(
   tree: UseTree,
   prefix: string[] = [],
+  prefixSpans: Range[] = [],
 ): FlatImport[] {
-  // Handle `self` keyword - it refers to the parent path
+  // Collect span for current segment if available
+  const currentSpan = tree.segment.range;
+
+  // Handle explicit `self` keyword - keep as "self" in path
   // e.g., in `std::io::{self}`, self means "import std::io itself"
   if (tree.segment.name === 'self') {
-    return [{ path: prefix, alias: tree.segment.alias }];
+    const spans = currentSpan
+      ? [...prefixSpans, currentSpan]
+      : [...prefixSpans];
+    return [{ path: [...prefix, 'self'], alias: tree.segment.alias, spans }];
   }
 
-  // Glob import
+  // Glob import - add "*" to the path
   if (tree.isGlob) {
-    return [{ path: prefix, isGlob: true }];
+    const spans = currentSpan
+      ? [...prefixSpans, currentSpan]
+      : [...prefixSpans];
+    return [{ path: [...prefix, '*'], isGlob: true, spans }];
   }
 
   const currentPath = [...prefix, tree.segment.name];
+  const currentSpans = currentSpan
+    ? [...prefixSpans, currentSpan]
+    : [...prefixSpans];
   const currentAlias = tree.segment.alias;
 
-  // Terminal node (no children)
+  // Terminal node (no children) - add "" as terminal marker
   if (!tree.children || tree.children.length === 0) {
-    return [{ path: currentPath, alias: currentAlias }];
+    return [
+      { path: [...currentPath, ''], alias: currentAlias, spans: currentSpans },
+    ];
   }
 
   // Has children - recurse
   const result: FlatImport[] = [];
   for (const child of tree.children) {
-    result.push(...expandToFlatImports(child, currentPath));
+    result.push(...expandToFlatImports(child, currentPath, currentSpans));
   }
   return result;
 }
@@ -158,9 +181,14 @@ export function mergeFlatImports(imports: FlatImport[]): FlatImport[] {
  * Build a UseTree from flat imports.
  * Groups imports by common prefixes to create nested structure.
  *
- * The tree structure is determined purely by the imports:
- * - A node is terminal if it has no children
- * - A node needs {self, ...} if it's imported AND has children
+ * Flat imports use markers:
+ * - ["std", "env", "self"] - explicit self keyword (use std::env::{self})
+ * - ["std", "env", "args", ""] - terminal marker (use std::env::args)
+ *
+ * When building the tree:
+ * - A "" child alone means this is a terminal import (output as simple path)
+ * - A "self" child represents explicit self keyword
+ * - A "" child with other children means the parent is also imported
  */
 export function buildUseTree(imports: FlatImport[]): UseTree | null {
   if (imports.length === 0) {
@@ -175,14 +203,12 @@ export function buildUseTree(imports: FlatImport[]): UseTree | null {
     name: string;
     alias?: string;
     children: Map<string, TreeNode>;
-    isImported: boolean; // This path itself is imported (not just a prefix)
     isGlob: boolean;
   }
 
   const rootNode: TreeNode = {
     name: root,
     children: new Map(),
-    isImported: false,
     isGlob: false,
   };
 
@@ -198,36 +224,26 @@ export function buildUseTree(imports: FlatImport[]): UseTree | null {
         child = {
           name: segment,
           children: new Map(),
-          isImported: false,
           isGlob: false,
         };
         current.children.set(segment, child);
       }
 
-      // Last segment gets the alias and marks as imported
+      // Last segment gets the alias
       if (i === imp.path.length - 1) {
-        child.isImported = true;
         if (imp.alias) {
           child.alias = imp.alias;
         }
         if (imp.isGlob) {
-          // Glob is a child of this node
-          const globChild: TreeNode = {
-            name: '*',
-            children: new Map(),
-            isImported: false,
-            isGlob: true,
-          };
-          child.children.set('*', globChild);
+          child.isGlob = true;
         }
       }
 
       current = child;
     }
 
-    // Handle root-level import (e.g., `use std;`)
+    // Handle root-level import (e.g., `use std;` -> ["std", "self"])
     if (imp.path.length === 1) {
-      rootNode.isImported = true;
       if (imp.alias) {
         rootNode.alias = imp.alias;
       }
@@ -251,41 +267,62 @@ export function buildUseTree(imports: FlatImport[]): UseTree | null {
       return tree;
     }
 
-    // If no children, it's a terminal node
+    // Check for terminal marker (empty string child) and self child
+    const terminalChild = node.children.get('');
+    const selfChild = node.children.get('self');
+    const otherChildren: TreeNode[] = [];
+    let hasGlob = false;
+
+    for (const [name, child] of node.children) {
+      if (name === '' || name === 'self') {
+        continue; // Handle terminal and self separately
+      }
+      if (child.isGlob) {
+        hasGlob = true;
+      } else {
+        otherChildren.push(child);
+      }
+    }
+
+    // If only terminal child exists (no self, no other children, no glob), it's a terminal import
+    if (terminalChild && !selfChild && otherChildren.length === 0 && !hasGlob) {
+      // Transfer alias from terminalChild to segment if present
+      if (terminalChild.alias) {
+        segment.alias = terminalChild.alias;
+      }
+      return tree;
+    }
+
+    // If only self child exists (no terminal, no other children, no glob), it's also a terminal import
+    // (self as only child means "import this path itself", which is a simple path)
+    if (selfChild && !terminalChild && otherChildren.length === 0 && !hasGlob) {
+      // Transfer alias from selfChild if present
+      if (selfChild.alias) {
+        segment.alias = selfChild.alias;
+      }
+      return tree;
+    }
+
+    // If no children at all, return as-is (shouldn't happen with new format)
     if (node.children.size === 0) {
       return tree;
     }
 
     const children: UseTree[] = [];
 
-    // If this node is imported AND has children, we need {self, ...}
-    if (node.isImported) {
+    // If self child exists or terminal child with other content, add {self, ...}
+    if (selfChild || (terminalChild && (otherChildren.length > 0 || hasGlob))) {
       const selfSegment: UsePathSegment = { name: 'self' };
-      if (node.alias) {
-        selfSegment.alias = node.alias;
-        // Clear alias from parent since it's now on self
-        segment.alias = undefined;
+      if (selfChild?.alias) {
+        selfSegment.alias = selfChild.alias;
       }
       children.push({ segment: selfSegment });
     }
 
-    // Add regular children (sorted for consistent output)
-    // Glob (*) should come last, so separate it
-    const regularChildren: TreeNode[] = [];
-    let hasGlob = false;
+    // Sort other children alphabetically
+    otherChildren.sort((a, b) => a.name.localeCompare(b.name));
 
-    for (const child of node.children.values()) {
-      if (child.isGlob) {
-        hasGlob = true;
-      } else {
-        regularChildren.push(child);
-      }
-    }
-
-    // Sort regular children alphabetically
-    regularChildren.sort((a, b) => a.name.localeCompare(b.name));
-
-    for (const child of regularChildren) {
+    for (const child of otherChildren) {
       children.push(nodeToUseTree(child));
     }
 
@@ -349,10 +386,15 @@ export function mergeUseStatements(statements: UseStatement[]): UseStatement[] {
     const maxEndLine = Math.max(...groupStmts.map((s) => s.range.end.line));
     const firstOnMinLine = groupStmts.find(
       (s) => s.range.start.line === minStartLine,
-    )!;
+    );
     const lastOnMaxLine = groupStmts.find(
       (s) => s.range.end.line === maxEndLine,
-    )!;
+    );
+
+    // These should always be found since groupStmts is non-empty
+    if (!firstOnMinLine || !lastOnMaxLine) {
+      continue;
+    }
 
     // Preserve attributes only for single statements
     const attributes =

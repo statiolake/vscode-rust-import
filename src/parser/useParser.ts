@@ -31,6 +31,10 @@ enum TokenType {
 interface Token {
   type: TokenType;
   value: string;
+  /** Start position in source (column only, line is always 0 for single-line parsing) */
+  startCol: number;
+  /** End position in source (exclusive) */
+  endCol: number;
 }
 
 /**
@@ -49,7 +53,12 @@ function tokenize(input: string): Token[] {
 
     // Double colon
     if (input.slice(pos, pos + 2) === '::') {
-      tokens.push({ type: TokenType.DoubleColon, value: '::' });
+      tokens.push({
+        type: TokenType.DoubleColon,
+        value: '::',
+        startCol: pos,
+        endCol: pos + 2,
+      });
       pos += 2;
       continue;
     }
@@ -66,18 +75,25 @@ function tokenize(input: string): Token[] {
     };
 
     if (singleCharTokens[input[pos]]) {
-      tokens.push({ type: singleCharTokens[input[pos]], value: input[pos] });
+      tokens.push({
+        type: singleCharTokens[input[pos]],
+        value: input[pos],
+        startCol: pos,
+        endCol: pos + 1,
+      });
       pos++;
       continue;
     }
 
     // Keywords and identifiers
     if (/[a-zA-Z_]/.test(input[pos])) {
+      const startCol = pos;
       let ident = '';
       while (pos < input.length && /[a-zA-Z0-9_]/.test(input[pos])) {
         ident += input[pos];
         pos++;
       }
+      const endCol = pos;
 
       const keywordMap: Record<string, TokenType> = {
         use: TokenType.Use,
@@ -90,9 +106,19 @@ function tokenize(input: string): Token[] {
       };
 
       if (keywordMap[ident]) {
-        tokens.push({ type: keywordMap[ident], value: ident });
+        tokens.push({
+          type: keywordMap[ident],
+          value: ident,
+          startCol,
+          endCol,
+        });
       } else {
-        tokens.push({ type: TokenType.Identifier, value: ident });
+        tokens.push({
+          type: TokenType.Identifier,
+          value: ident,
+          startCol,
+          endCol,
+        });
       }
       continue;
     }
@@ -110,9 +136,23 @@ function tokenize(input: string): Token[] {
 class UseTreeParser {
   private tokens: Token[];
   private pos: number = 0;
+  /** Base line number in the source file */
+  private baseLine: number;
+  /** Base column offset (start of the use statement) */
+  private baseCol: number;
 
-  constructor(tokens: Token[]) {
+  constructor(tokens: Token[], baseLine: number = 0, baseCol: number = 0) {
     this.tokens = tokens;
+    this.baseLine = baseLine;
+    this.baseCol = baseCol;
+  }
+
+  /** Convert token column to absolute range in source */
+  private tokenToRange(token: Token): Range {
+    return {
+      start: { line: this.baseLine, column: this.baseCol + token.startCol },
+      end: { line: this.baseLine, column: this.baseCol + token.endCol },
+    };
   }
 
   private current(): Token | undefined {
@@ -181,7 +221,10 @@ class UseTreeParser {
       throw new Error('Unexpected end of input');
     }
 
-    const segment: UsePathSegment = { name: token.value };
+    const segment: UsePathSegment = {
+      name: token.value,
+      range: this.tokenToRange(token),
+    };
 
     // Check for alias
     if (this.match(TokenType.As)) {
@@ -209,7 +252,7 @@ class UseTreeParser {
     if (token.type === TokenType.Star) {
       this.advance();
       return {
-        segment: { name: '*' },
+        segment: { name: '*', range: this.tokenToRange(token) },
         isGlob: true,
       };
     }
@@ -217,7 +260,10 @@ class UseTreeParser {
     // Handle self
     if (token.type === TokenType.Self) {
       this.advance();
-      const segment: UsePathSegment = { name: 'self' };
+      const segment: UsePathSegment = {
+        name: 'self',
+        range: this.tokenToRange(token),
+      };
       // Check for alias on self
       if (this.match(TokenType.As)) {
         this.advance();
@@ -244,10 +290,11 @@ class UseTreeParser {
         tree.children = this.parseUseTreeList();
         this.expect(TokenType.CloseBrace);
       } else if (this.match(TokenType.Star)) {
+        const starToken = this.current()!;
         this.advance();
         tree.children = [
           {
-            segment: { name: '*' },
+            segment: { name: '*', range: this.tokenToRange(starToken) },
             isGlob: true,
           },
         ];
@@ -341,6 +388,9 @@ function findStartLine(lines: string[], useLineIndex: number): number {
 
 /**
  * Parse a single use statement from its string representation
+ * @param useStr The use statement string
+ * @param attributes Attributes attached to the use statement
+ * @param range Range of the use statement in the source file
  */
 export function parseUseStatement(
   useStr: string,
@@ -348,7 +398,12 @@ export function parseUseStatement(
   range: Range = { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } },
 ): UseStatement {
   const tokens = tokenize(useStr);
-  const parser = new UseTreeParser(tokens);
+  // Pass base position to parser for calculating segment ranges
+  const parser = new UseTreeParser(
+    tokens,
+    range.start.line,
+    range.start.column,
+  );
   const { visibility, tree } = parser.parse();
 
   return {

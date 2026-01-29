@@ -7,7 +7,7 @@ import { parseRustFile } from '../parser/useParser';
 import {
   isRustAnalyzerAvailable,
   hasErrorDiagnostics,
-  getUnusedImportPaths,
+  getUnusedImportDiagnostics,
   getAutoImportPaths,
   filterUnusedImports,
   createUseStatementsFromPaths,
@@ -90,8 +90,8 @@ export async function organizeImportsInDocument(
   if (raAvailable) {
     // Filter out unused imports (skip if there are error diagnostics to avoid false positives)
     if (config.enableRemoveUnusedImports && !hasErrorDiagnostics(document)) {
-      const unusedPaths = getUnusedImportPaths(document);
-      imports = filterUnusedImports(imports, unusedPaths);
+      const unusedDiagnostics = getUnusedImportDiagnostics(document);
+      imports = filterUnusedImports(imports, unusedDiagnostics);
     }
 
     // Get paths to auto-import
