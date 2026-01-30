@@ -1,15 +1,38 @@
+# Source files (bundled by esbuild)
+src/**
+
+# Build artifacts
+dist/**/*.map
+
+# Test files
+src/test/**
+out/**
+out/test/**
+
+# Development files
 .vscode/**
 .vscode-test/**
-out/**
-src/**
-node_modules/**
+.devcontainer/**
+.github/**
+.claude/**
+
+# Config files
 .gitignore
-.yarnrc
-vsc-extension-quickstart.md
-esbuild.js
+.vscode-test.mjs
+tsconfig.json
+eslint.config.mjs
 biome.json
-**/tsconfig.json
-**/eslint.config.mjs
-**/*.map
-**/*.ts
-**/.vscode-test.*
+esbuild.js
+
+# Package manager
+node_modules/**
+package-lock.json
+yarn.lock
+.pnpm-lock.yaml
+
+# Documentation
+vsc-extension-quickstart.md
+CHANGELOG.md
+
+# Old VSIX files
+*.vsix
