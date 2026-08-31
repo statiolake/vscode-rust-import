@@ -1,38 +1,72 @@
-# Source files (bundled by esbuild)
+# =============================================================================
+# .vscodeignore — what stays OUT of the published VSIX.
+#
+# Ships (do NOT add here): package.json, dist/extension.js,
+# README.md, CHANGELOG.md, LICENSE, and the extension icon.
+# Everything else is excluded. The bundle is built by esbuild, so no
+# source, no intermediate output and no node_modules are needed at runtime.
+# =============================================================================
+
+# --- Source & intermediate build output (esbuild bundles src into dist) ------
 src/**
-
-# Build artifacts
-dist/**/*.map
-
-# Test files
-src/test/**
 out/**
-out/test/**
+**/*.ts
+**/*.tsbuildinfo
+**/*.map
 
-# Development files
-.vscode/**
+# --- Tests -------------------------------------------------------------------
 .vscode-test/**
-.devcontainer/**
-.github/**
-.claude/**
-
-# Config files
-.gitignore
 .vscode-test.mjs
-tsconfig.json
-eslint.config.mjs
-biome.json
-esbuild.js
+**/*.test.js
 
-# Package manager
+# --- Build & tooling config --------------------------------------------------
+esbuild.js
+tsconfig*.json
+eslint.config.*
+.eslintrc*
+.eslintignore
+biome.json
+biome.jsonc
+.prettierrc*
+.editorconfig
+
+# --- Editor / CI / repo metadata ---------------------------------------------
+.vscode/**
+.github/**
+.devcontainer/**
+.claude/**
+.gitignore
+.gitattributes
+.git/**
+
+# --- Package manager ---------------------------------------------------------
 node_modules/**
 package-lock.json
 yarn.lock
-.pnpm-lock.yaml
+pnpm-lock.yaml
+.npmrc
+.yarnrc*
 
-# Documentation
+# --- Internal docs (not shown on the Marketplace) ----------------------------
 vsc-extension-quickstart.md
-CHANGELOG.md
 
-# Old VSIX files
+# --- Build outputs of this very command --------------------------------------
 *.vsix
+
+# --- Secrets: never publishable ----------------------------------------------
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.ovpn
+.ovsx-token
+.vsce-token
+*.token
+secrets.json
+
+# --- OS / editor noise -------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.log
