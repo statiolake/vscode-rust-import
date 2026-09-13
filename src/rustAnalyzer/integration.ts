@@ -87,6 +87,25 @@ function isTraitFromDiagnostic(diagnostic: vscode.Diagnostic): Set<string> {
 }
 
 /**
+ * Check if a diagnostic can be a source of auto-imports.
+ *
+ * Code actions are requested for a diagnostic's range, but rust-analyzer's
+ * auto-import assist looks at whatever identifier is at that range regardless of
+ * the diagnostic. For example, an `unused variable: w` warning inside
+ * `proconio::input!` yields "Import `ascii::AsciiChar::w`". A missing import is
+ * always a compile error, so only error-level diagnostics are used.
+ *
+ * The error code (e.g. E0433) cannot be used instead: the rust-analyzer
+ * extension replaces `code` of rustc diagnostics with
+ * "Click for full compiler diagnostic".
+ */
+export function isAutoImportSourceDiagnostic(
+  diagnostic: vscode.Diagnostic,
+): boolean {
+  return diagnostic.severity === vscode.DiagnosticSeverity.Error;
+}
+
+/**
  * Get auto-import paths from diagnostics (without generating edits)
  * Returns paths to import that have exactly one suggestion
  * Also detects if the import is for a trait (should use `as _`)
@@ -105,6 +124,13 @@ export async function getAutoImportPaths(
     const diagnostics = vscode.languages.getDiagnostics(document.uri);
 
     for (const diagnostic of diagnostics) {
+      if (!isAutoImportSourceDiagnostic(diagnostic)) {
+        log(
+          `  Ignoring non-error diagnostic: ${diagnostic.message.split('\n')[0]}`,
+        );
+        continue;
+      }
+
       // Check if this diagnostic indicates trait imports
       const traitsInDiagnostic = isTraitFromDiagnostic(diagnostic);
       for (const traitName of traitsInDiagnostic) {
