@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { formatUseStatementsWithRustfmt } from '../formatter/rustfmt';
 import { formatImportsForFile } from '../formatter/useFormatter';
+import { computeImportsEdit } from './importsEdit';
 import { findCargoToml, parseCargoDependencies } from '../parser/cargoParser';
 import { CargoDependencies, GroupedImports } from '../parser/types';
 import { parseRustFile } from '../parser/useParser';
@@ -77,7 +78,6 @@ export async function organizeImportsInDocument(
 
   const config = getConfig();
   const content = document.getText();
-  const lines = content.split('\n');
 
   // Step 1: Parse existing imports
   const parseResult = parseRustFile(content);
@@ -136,69 +136,19 @@ export async function organizeImportsInDocument(
     );
   }
 
-  // Step 5: Calculate the range to replace and apply single edit
-  let startLine: number;
-  let startCol: number;
-  let endLine: number;
-  let endCol: number;
-
-  if (parseResult.importsRange) {
-    // There are existing imports - replace them
-    startLine = parseResult.importsRange.start.line;
-    startCol = parseResult.importsRange.start.column;
-    endLine = parseResult.importsRange.end.line;
-    endCol = parseResult.importsRange.end.column;
-  } else if (allImports.length > 0) {
-    // No existing imports but we have new ones - find insertion point
-    const insertLine = findImportInsertionLine(lines);
-    startLine = insertLine;
-    startCol = 0;
-    endLine = insertLine;
-    endCol = 0;
-  } else {
-    // No imports at all
+  // Step 5: Calculate the edit and apply it in a single edit
+  const edit = computeImportsEdit(content, parseResult, formattedImports);
+  if (!edit) {
     return false;
   }
 
-  // Determine spacing needs
-  const hasCodeBeforeImports = startCol > 0;
-  const hasCodeAfterImports = endCol < lines[endLine].length;
-  const needsBlankLineAfter =
-    !parseResult.hasBlankLineAfterImports && !hasCodeAfterImports;
-
-  // Build formatted text with proper spacing
-  let formattedText = formattedImports.trimEnd();
-  if (hasCodeBeforeImports) {
-    formattedText = `\n\n${formattedText}`;
-  }
-  if (hasCodeAfterImports) {
-    formattedText = `${formattedText}\n\n`;
-  } else if (needsBlankLineAfter && formattedText) {
-    formattedText = `${formattedText}\n`;
-  }
-
-  // If no existing imports but adding new ones, ensure proper formatting
-  if (!parseResult.importsRange && allImports.length > 0) {
-    // Check if we need a blank line after
-    if (startLine < lines.length && lines[startLine].trim() !== '') {
-      formattedText = formattedText + '\n';
-    }
-  }
-
-  // Apply the single edit
   const range = new vscode.Range(
-    new vscode.Position(startLine, startCol),
-    new vscode.Position(endLine, endCol),
+    new vscode.Position(edit.range.start.line, edit.range.start.column),
+    new vscode.Position(edit.range.end.line, edit.range.end.column),
   );
 
-  const currentText = document.getText(range);
-  if (currentText === formattedText) {
-    // No changes needed
-    return false;
-  }
-
   await editor.edit((editBuilder) => {
-    editBuilder.replace(range, formattedText);
+    editBuilder.replace(range, edit.text);
   });
 
   // Clear rust-analyzer diagnostics so they get recalculated
@@ -209,38 +159,6 @@ export async function organizeImportsInDocument(
   }
 
   return true;
-}
-
-/**
- * Find the line to insert imports when there are no existing imports
- */
-function findImportInsertionLine(lines: string[]): number {
-  let insertLine = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (
-      line.startsWith('#![') || // inner attribute
-      line.startsWith('//!') || // module doc comment
-      line.startsWith('extern crate') // extern crate
-    ) {
-      insertLine = i + 1;
-    } else if (line === '' || line.startsWith('//')) {
-      // Skip empty lines and regular comments at the top
-      if (insertLine === i) {
-        insertLine = i + 1;
-      }
-    } else if (line.startsWith('mod ')) {
-      // Found mod, insert before it
-      insertLine = i;
-      break;
-    } else if (line.length > 0 && !line.startsWith('#[')) {
-      // Found other code
-      break;
-    }
-  }
-
-  return insertLine;
 }
 
 /**

@@ -624,28 +624,9 @@ export function parseRustFile(content: string): ParseResult {
     };
   }
 
-  // Check if there's a blank line after imports
-  let hasBlankLineAfterImports = true;
-  if (imports.length > 0) {
-    const lastImport = imports[imports.length - 1];
-    const lastLine = lastImport.range.end.line;
-    const lastCol = lastImport.range.end.column;
-
-    // If the use statement doesn't end at end of line, there's code after it
-    if (lastCol < lines[lastLine].length) {
-      // There's code after the semicolon on the same line - no blank line needed
-      hasBlankLineAfterImports = true;
-    } else if (lastLine + 1 < lines.length) {
-      // Check the line after imports
-      const nextLine = lines[lastLine + 1].trim();
-      hasBlankLineAfterImports = nextLine === '';
-    }
-  }
-
   return {
     imports,
     importsRange,
-    hasBlankLineAfterImports,
   };
 }
 

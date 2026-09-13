@@ -101,6 +101,4 @@ export interface ParseResult {
   imports: UseStatement[];
   /** Range covering all imports (from first import start to last import end) */
   importsRange: Range | null;
-  /** Whether there's a blank line after imports (or no code after imports) */
-  hasBlankLineAfterImports: boolean;
 }
