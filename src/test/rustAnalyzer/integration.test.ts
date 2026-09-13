@@ -1,5 +1,7 @@
 import * as assert from 'assert';
+import * as vscode from 'vscode';
 import {
+  isAutoImportSourceDiagnostic,
   filterUnusedImports,
   createUseStatementsFromPaths,
   type UnusedImportDiagnostic,
@@ -31,7 +33,56 @@ function diagAt(
   };
 }
 
+/**
+ * Create a rustc diagnostic as the rust-analyzer extension delivers it:
+ * the error code is replaced with "Click for full compiler diagnostic".
+ */
+function rustcDiagnostic(
+  message: string,
+  severity: vscode.DiagnosticSeverity,
+): vscode.Diagnostic {
+  const diagnostic = new vscode.Diagnostic(
+    new vscode.Range(0, 0, 0, 1),
+    message,
+    severity,
+  );
+  diagnostic.source = 'rustc';
+  diagnostic.code = {
+    value: 'Click for full compiler diagnostic',
+    target: vscode.Uri.parse('rust-analyzer-diagnostics-view:/diagnostic'),
+  };
+  return diagnostic;
+}
+
 suite('Integration Test Suite', () => {
+  suite('isAutoImportSourceDiagnostic', () => {
+    test('accepts unresolved name error', () => {
+      const diagnostic = rustcDiagnostic(
+        'cannot find type `Instant` in this scope',
+        vscode.DiagnosticSeverity.Error,
+      );
+      assert.ok(isAutoImportSourceDiagnostic(diagnostic));
+    });
+
+    test('rejects unused variable warning inside macro (issue #2)', () => {
+      // `input! { w: usize }` yields this warning at `w`, and code actions
+      // there include "Import `ascii::AsciiChar::w`"
+      const diagnostic = rustcDiagnostic(
+        'unused variable: `w`',
+        vscode.DiagnosticSeverity.Warning,
+      );
+      assert.ok(!isAutoImportSourceDiagnostic(diagnostic));
+    });
+
+    test('rejects hint attached to unused variable', () => {
+      const diagnostic = rustcDiagnostic(
+        'if this is intentional, prefix it with an underscore: `_w`',
+        vscode.DiagnosticSeverity.Hint,
+      );
+      assert.ok(!isAutoImportSourceDiagnostic(diagnostic));
+    });
+  });
+
   suite('filterUnusedImports', () => {
     test('removes underscore alias version when both exist', () => {
       // use std::{fmt::Write, fmt::Write as _}
